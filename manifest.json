@@ -1,0 +1,34 @@
+{
+  "name": "SPAREZ — Used Auto Parts",
+  "short_name": "SPAREZ",
+  "description": "Buy & Sell Used Auto Parts. Direct. Simple. Safe.",
+  "start_url": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#ffffff",
+  "theme_color": "#e8172c",
+  "icons": [
+    {
+      "src": "data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 512 512'><rect width='512' height='512' rx='112' fill='%23e8172c'/><text y='360' x='60' font-size='380'>🔧</text></svg>",
+      "sizes": "512x512",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 192 192'><rect width='192' height='192' rx='42' fill='%23e8172c'/><text y='145' x='18' font-size='148'>🔧</text></svg>",
+      "sizes": "192x192",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ],
+  "categories": ["shopping", "automotive"],
+  "screenshots": [
+    {
+      "src": "/",
+      "sizes": "390x844",
+      "type": "image/png",
+      "form_factor": "narrow",
+      "label": "SPAREZ Home Screen"
+    }
+  ]
+}
