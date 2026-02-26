@@ -1584,7 +1584,7 @@ function HomeScreen({listings,filters,setFilters,showFilters,setShowFilters,acti
                   </div>
                   <div style={{display:"flex",alignItems:"center",gap:2}}>
                     <Icon name="pin" size={10} color="#bbb"/>
-                    <span style={{color:"#bbb",fontSize:10}}>{l.sellerLocation.split(",")[0]}</span>
+                    <span style={{color:"#bbb",fontSize:10}}>{(l.sellerLocation||"Unknown").split(",")[0]}</span>
                   </div>
                 </div>
                 <p style={{color:"#ccc",fontSize:10,margin:"4px 0 0"}}>{l.sold?`Sold ${timeAgo(l.soldAt)}`:timeAgo(l.createdAt)}</p>
@@ -1633,9 +1633,9 @@ function ListingScreen({listing:l,currentUser,onBack,openChat,markSold,deleteLis
       {/* Gallery */}
       <div style={{position:"relative",height:240,background:"#f0f0f0",overflow:"hidden"}}>
         <img src={l.photos[photoIdx]} alt="" style={{width:"100%",height:"100%",objectFit:"cover",filter:l.sold?"grayscale(30%)":"none"}}/>
-        <span style={{position:"absolute",top:10,right:10,background:"rgba(0,0,0,0.45)",color:"#fff",fontSize:11,padding:"3px 10px",borderRadius:20}}>{photoIdx+1}/{l.photos.length}</span>
-        {l.photos.length>1&&<div style={{position:"absolute",bottom:8,left:0,right:0,display:"flex",justifyContent:"center",gap:6}}>
-          {l.photos.map((_,i)=><div key={i} style={{width:38,height:28,borderRadius:5,overflow:"hidden",border:`2px solid ${i===photoIdx?"#e8172c":"transparent"}`,cursor:"pointer"}} onClick={()=>setPhotoIdx(i)}>
+        <span style={{position:"absolute",top:10,right:10,background:"rgba(0,0,0,0.45)",color:"#fff",fontSize:11,padding:"3px 10px",borderRadius:20}}>{photoIdx+1}/{(l.photos||[]).length}</span>
+        {(l.photos||[]).length>1&&<div style={{position:"absolute",bottom:8,left:0,right:0,display:"flex",justifyContent:"center",gap:6}}>
+          {(l.photos||[]).map((_,i)=><div key={i} style={{width:38,height:28,borderRadius:5,overflow:"hidden",border:`2px solid ${i===photoIdx?"#e8172c":"transparent"}`,cursor:"pointer"}} onClick={()=>setPhotoIdx(i)}>
             <img src={l.photos[i]} alt="" style={{width:"100%",height:"100%",objectFit:"cover"}}/>
           </div>)}
         </div>}
@@ -2401,11 +2401,14 @@ function AddListingScreen({currentUser,setListings,notify,setScreen}){
 
   const removePhoto=(i)=>setPhotos(ph=>ph.filter((_,j)=>j!==i));
 
+  const [submitting,setSubmitting]=useState(false);
   const submit=async()=>{
+    if(submitting)return;
     const req=["make","model","year","partName","category","condition","price","description"];
     if(req.some(k=>!f[k]))return notify("Fill all required fields","error");
     if(f.model==="Other (not listed)"&&!f.customModel)return notify("Please enter the model name","error");
     if(photos.length===0)return notify("Add at least one photo","error");
+    setSubmitting(true);
     const finalModel=f.model==="Other (not listed)"?f.customModel:f.model;
     const newListing={id:genId(),sellerId:currentUser.id,sellerName:currentUser.name,
       sellerPhone:currentUser.phone,sellerEmail:currentUser.email,
@@ -2419,6 +2422,7 @@ function AddListingScreen({currentUser,setListings,notify,setScreen}){
       const sb=await getSB();
       await sb.from("listings").insert(listingToRow(newListing));
     }catch(e){console.error("Failed to save listing:",e);notify("Listing saved locally only — check connection","error");}
+    finally{setSubmitting(false);}
   };
 
   return(
@@ -2591,7 +2595,9 @@ function AddListingScreen({currentUser,setListings,notify,setScreen}){
           <p style={{color:"#bbb",fontSize:11,margin:"4px 0 0",textAlign:"center"}}>💡 First photo is your cover image · Drag to reorder</p>
         </Section>
 
-        <button style={C.btnRed} onClick={submit}>Publish Listing</button>
+        <button style={{...C.btnRed,opacity:submitting?0.7:1,cursor:submitting?"not-allowed":"pointer"}} onClick={submit} disabled={submitting}>
+          {submitting?"Publishing…":"Publish Listing"}
+        </button>
         <div style={{height:80}}/>
       </div>
     </div>
