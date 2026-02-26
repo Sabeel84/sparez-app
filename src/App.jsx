@@ -994,12 +994,34 @@ export default function App(){
         }
       }
 
-      // ── Listen for auth state changes (email confirmed, sign out etc) ─────
+      // ── Listen for auth state changes ─────────────────────────────────────
       sb.auth.onAuthStateChange(async(event,session)=>{
-        if(event==="SIGNED_IN"&&session){
-          const {data:profile}=await sb.from("profiles").select("*").eq("id",session.user.id).single();
+        if((event==="SIGNED_IN"||event==="TOKEN_REFRESHED"||event==="USER_UPDATED")&&session){
+          // Fetch profile - retry once in case it was just created
+          let profile=null;
+          for(let attempt=0;attempt<3;attempt++){
+            const {data:p}=await sb.from("profiles").select("*").eq("id",session.user.id).single();
+            if(p){profile=p;break;}
+            await new Promise(r=>setTimeout(r,800)); // wait 800ms and retry
+          }
           if(profile){
             const u=profileToUser(profile,session.user.email);
+            setCurrentUser(u);
+            setUsers(us=>us.find(x=>x.id===u.id)?us.map(x=>x.id===u.id?u:x):[...us,u]);
+            setScreen("home");
+          } else {
+            // Profile missing — create it from auth metadata
+            const meta=session.user.user_metadata||{};
+            const newProfile={
+              id:session.user.id,
+              name:meta.name||session.user.email,
+              phone:meta.phone||"",
+              role:meta.role||"buyer",
+              ratings:[],
+              car_prefs:[],
+            };
+            await sb.from("profiles").upsert(newProfile,{onConflict:"id"});
+            const u=profileToUser(newProfile,session.user.email);
             setCurrentUser(u);
             setUsers(us=>us.find(x=>x.id===u.id)?us.map(x=>x.id===u.id?u:x):[...us,u]);
             setScreen("home");
@@ -1009,15 +1031,6 @@ export default function App(){
           setCurrentUser(null);
           lsSet("sparez_currentUser",null);
           setScreen("splash");
-        }
-        if(event==="USER_UPDATED"&&session){
-          // email confirmed
-          const {data:profile}=await sb.from("profiles").select("*").eq("id",session.user.id).single();
-          if(profile){
-            const u=profileToUser(profile,session.user.email);
-            setCurrentUser(u);
-            setScreen("home");
-          }
         }
       });
 
@@ -1100,7 +1113,7 @@ export default function App(){
         const parts=key.split("_");
         if(currentUser.id!==parts[0]&&currentUser.id!==parts[1])return;
         if(activeChatKey?.key===key)return;
-        pushNotif("message",`\u{1F4AC} ${m.senderName} sent you a message`,
+        pushNotif("message",`💬 ${m.senderName} sent you a message`,
           `"${m.text.length>80?m.text.slice(0,80)+"\u2026":m.text}"`,{screen:"chat",chatKey:key});
       });
     });
@@ -1123,7 +1136,7 @@ export default function App(){
         return makeOk&&modelOk&&yearOk;
       });
       if(matched)pushNotif("listing",
-        `\U0001F50D New part for your ${matched.make}${matched.model!=="Any model"?" "+matched.model:""}`,
+        `🔍 New part for your ${matched.make}${matched.model!=="Any model"?" "+matched.model:""}`,
         `${l.partName} \u00B7 ${l.condition} \u00B7 ${fmtPrice(l.price,l.currency||"USD")} \u00B7 by ${l.sellerName}`,
         {screen:"listing",listingId:l.id});
     });
@@ -1313,18 +1326,24 @@ function AuthScreen({authMode,setAuthMode,setCurrentUser,setUsers,setScreen,noti
       if(authMode==="login"){
         const {data,error}=await sb.auth.signInWithPassword({email:f.email,password:f.password});
         if(error){
-          if(error.message.includes("Email not confirmed"))
-            notify("Please verify your email first \u2014 check your inbox","error");
-          else
-            notify("Invalid email or password","error");
+          if(error.message.toLowerCase().includes("email not confirmed")||
+             error.message.toLowerCase().includes("not confirmed")){
+            notify("Please verify your email first — check your inbox ✉️","error");
+          } else if(error.message.toLowerCase().includes("invalid login")||
+                    error.message.toLowerCase().includes("invalid credentials")||
+                    error.message.toLowerCase().includes("wrong password")){
+            notify("Incorrect email or password","error");
+          } else {
+            notify(error.message||"Sign in failed — try again","error");
+          }
           return;
         }
-        // Profile loaded by onAuthStateChange in App
+        // onAuthStateChange in App handles setting currentUser + navigating to home
+        // Loading cleared in finally below
       }else{
         if(!f.name||!f.email||!f.phone||!f.password)return notify("All fields required","error");
         if(!f.termsAccepted)return notify("Please accept the Terms & Conditions","error");
         if(!f.phone.match(/^\+?[\d\s\-]{7,}/))return notify("Enter a valid phone number","error");
-        // Sign up with Supabase Auth
         const {data,error}=await sb.auth.signUp({
           email:f.email,
           password:f.password,
@@ -1334,20 +1353,20 @@ function AuthScreen({authMode,setAuthMode,setCurrentUser,setUsers,setScreen,noti
           }
         });
         if(error){notify(error.message,"error");return;}
-        // Create profile row immediately
+        // Upsert profile so it exists even if email isn't confirmed yet
         if(data.user){
-          await sb.from("profiles").insert({
+          await sb.from("profiles").upsert({
             id:data.user.id,
             name:f.name,
             phone:f.phone,
             role:f.role,
             ratings:[],
             car_prefs:[],
-          });
+          },{onConflict:"id"});
         }
         setVerifyStep(true);
       }
-    }catch(e){notify("Something went wrong \u2014 try again","error");console.error(e);}
+    }catch(e){notify("Something went wrong — try again","error");console.error(e);}
     finally{setLoading(false);}
   };
 
@@ -1363,7 +1382,7 @@ function AuthScreen({authMode,setAuthMode,setCurrentUser,setUsers,setScreen,noti
           <strong style={{color:"#e8172c"}}>{f.email}</strong>
         </p>
         <div style={{background:"#f0fdf4",borderRadius:12,padding:"12px 16px",border:"1px solid #bbf7d0",width:"100%",boxSizing:"border-box"}}>
-          <p style={{color:"#16a34a",fontSize:13,fontWeight:700,margin:"0 0 4px"}}>\u2705 What to do next:</p>
+          <p style={{color:"#16a34a",fontSize:13,fontWeight:700,margin:"0 0 4px"}}>✅ What to do next:</p>
           <p style={{color:"#4ade80",fontSize:12,margin:0,lineHeight:1.6}}>
             1. Open your email inbox<br/>
             2. Click the <strong>"Confirm your email"</strong> link<br/>
@@ -1394,7 +1413,7 @@ function AuthScreen({authMode,setAuthMode,setCurrentUser,setUsers,setScreen,noti
           <input style={C.input} placeholder="Full Name / Business Name" value={f.name} onChange={e=>set("name",e.target.value)}/>
           <div style={{display:"flex",gap:8}}>
             {["buyer","seller"].map(r=>(
-              <button key={r} style={{flex:1,padding:"10px",border:`1.5px solid ${f.role===r?"#e8172c":"#e0e0e0"}`,borderRadius:8,background:f.role===r?"#fff5f5":"#fff",color:f.role===r?"#e8172c":"#666",cursor:"pointer",fontWeight:600,fontSize:13}} onClick={()=>set("role",r)}>{r==="buyer"?"\U0001F6D2 Buyer":"\U0001F3EA Seller"}</button>
+              <button key={r} style={{flex:1,padding:"10px",border:`1.5px solid ${f.role===r?"#e8172c":"#e0e0e0"}`,borderRadius:8,background:f.role===r?"#fff5f5":"#fff",color:f.role===r?"#e8172c":"#666",cursor:"pointer",fontWeight:600,fontSize:13}} onClick={()=>set("role",r)}>{r==="buyer"?"🛒 Buyer":"🏪 Seller"}</button>
             ))}
           </div>
           <input style={C.input} placeholder="Phone Number" value={f.phone} onChange={e=>set("phone",e.target.value)} type="tel"/>
