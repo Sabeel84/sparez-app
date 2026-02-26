@@ -1925,352 +1925,402 @@ function CameraModal({onCapture,onClose}){
 // ─── AI Part Scanner ──────────────────────────────────────────────────────────
 
 // Maps COCO-SSD detected objects → SPAREZ categories + part hints
-// ─── AI Part Scanner (Claude Vision) ─────────────────────────────────────────
+// ─── AI Part Scanner — Powered by Google Gemini (Free) ───────────────────────
 
-async function analyseWithClaude(base64Image, mediaType){
-  const ANTHROPIC_KEY = import.meta.env.VITE_ANTHROPIC_KEY;
-  if(!ANTHROPIC_KEY) throw new Error("NO_KEY");
+async function analyseWithGemini(base64Image, mediaType) {
+  const KEY = import.meta.env.VITE_GEMINI_KEY;
+  if (!KEY) throw new Error("NO_KEY");
 
-  const res = await fetch("https://api.anthropic.com/v1/messages",{
-    method:"POST",
-    headers:{
-      "Content-Type":"application/json",
-      "x-api-key":ANTHROPIC_KEY,
-      "anthropic-version":"2023-06-01",
-      "anthropic-dangerous-direct-browser-access":"true",
-    },
-    body:JSON.stringify({
-      model:"claude-haiku-4-5-20251001",
-      max_tokens:512,
-      messages:[{
-        role:"user",
-        content:[
-          {type:"image",source:{type:"base64",media_type:mediaType,data:base64Image}},
-          {type:"text",text:`You are an expert auto parts identifier. Look at this image and identify the car part shown.
-Reply ONLY with a valid JSON object (no markdown, no explanation) with these exact keys:
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${KEY}`;
+
+  const prompt = `You are an expert auto parts identifier. Analyse this image and identify the car part shown.
+Reply ONLY with a valid JSON object — no markdown, no explanation, no code fences. Use exactly these keys:
 {
-  "partName": "e.g. Front Bumper Cover",
-  "category": one of ["Body Parts","Engine & Drivetrain","Transmission","Suspension","Electrical","Interior","Brakes","Cooling","Exhaust","Wheels & Tires","Other"],
-  "condition": one of ["Excellent","Good","Fair","Poor"],
-  "partNumber": "if visible on part, else empty string",
-  "year": "if visible, else empty string",
-  "description": "one sentence describing the part and its condition",
-  "confidence": number 0-100,
-  "notes": "any important details about fitment, damage, etc"
+  "partName": "specific part name e.g. Front Bumper Cover",
+  "category": "one of: Body Parts | Engine & Drivetrain | Transmission | Suspension | Electrical | Interior | Brakes | Cooling | Exhaust | Wheels & Tires | Other",
+  "condition": "one of: Excellent | Good | Fair | Poor",
+  "partNumber": "OEM part number if visible on part, else empty string",
+  "year": "model year if visible, else empty string",
+  "description": "one clear sentence describing the part and visible condition",
+  "confidence": 85
 }
-If this is not a car part, still fill all fields with your best guess using category "Other".`}
-        ]
-      }]
-    })
+Be specific and accurate. If unsure, give your best guess — never leave partName or category empty.`;
+
+  const body = {
+    contents: [{
+      parts: [
+        { inline_data: { mime_type: mediaType, data: base64Image } },
+        { text: prompt }
+      ]
+    }],
+    generationConfig: { temperature: 0.1, maxOutputTokens: 512 }
+  };
+
+  const res = await fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body)
   });
-  if(!res.ok){
-    const err = await res.json().catch(()=>({}));
-    throw new Error(err?.error?.message||`API error ${res.status}`);
+
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    const msg = err?.error?.message || `API error ${res.status}`;
+    if (res.status === 400 && msg.includes("API_KEY")) throw new Error("BAD_KEY");
+    throw new Error(msg);
   }
+
   const data = await res.json();
-  const text = data.content?.[0]?.text||"{}";
-  // Strip any markdown fences if model added them
-  const clean = text.replace(/```json|```/g,"").trim();
-  return JSON.parse(clean);
+  const text = data.candidates?.[0]?.content?.parts?.[0]?.text || "{}";
+  const clean = text.replace(/```json|```/g, "").trim();
+  try {
+    return JSON.parse(clean);
+  } catch(e) {
+    // Try to extract JSON from response if model added surrounding text
+    const match = clean.match(/\{[\s\S]*\}/);
+    if (match) return JSON.parse(match[0]);
+    throw new Error("Could not parse AI response");
+  }
 }
 
-function AIPartScanner({onResult, onClose}){
-  const fileRef    = useRef();
-  const videoRef   = useRef();
-  const streamRef  = useRef();
-  const [phase, setPhase]         = useState("intro");  // intro|camera|camera_err|scanning|done|error|no_key
+function AIPartScanner({ onResult, onClose }) {
+  const fileRef   = useRef();
+  const videoRef  = useRef();
+  const streamRef = useRef();
+
+  const [phase, setPhase]             = useState("intro"); // intro|camera|camera_err|scanning|done|error|no_key
   const [capturedImg, setCapturedImg] = useState(null);
-  const [result, setResult]       = useState(null);
-  const [errorMsg, setErrorMsg]   = useState("");
-  const [progress, setProgress]   = useState("");
+  const [result, setResult]           = useState(null);
+  const [errorMsg, setErrorMsg]       = useState("");
+  const [progress, setProgress]       = useState("");
   const [cameraReady, setCameraReady] = useState(false);
+  const [dots, setDots]               = useState("");
+
+  // Animated dots for scanning phase
+  useEffect(() => {
+    if (phase !== "scanning") return;
+    const id = setInterval(() => setDots(d => d.length >= 3 ? "" : d + "."), 500);
+    return () => clearInterval(id);
+  }, [phase]);
 
   const stopCam = () => {
-    streamRef.current?.getTracks().forEach(t=>t.stop());
+    streamRef.current?.getTracks().forEach(t => t.stop());
     streamRef.current = null;
   };
-  useEffect(()=>()=>{stopCam();},[]);
+  useEffect(() => () => stopCam(), []);
 
   const startCamera = async () => {
     setPhase("camera"); setCameraReady(false);
-    try{
+    try {
       const stream = await navigator.mediaDevices.getUserMedia({
-        video:{facingMode:"environment",width:{ideal:1280},height:{ideal:720}}
+        video: { facingMode: "environment", width: { ideal: 1280 }, height: { ideal: 720 } }
       });
       streamRef.current = stream;
-      if(videoRef.current){
+      if (videoRef.current) {
         videoRef.current.srcObject = stream;
         await videoRef.current.play();
         setCameraReady(true);
       }
-    }catch(e){ stopCam(); setPhase("camera_err"); }
+    } catch(e) { stopCam(); setPhase("camera_err"); }
   };
 
-  const snap = () => {
-    const video = videoRef.current;
-    if(!video) return;
+  const snapPhoto = () => {
+    const video = videoRef.current; if (!video) return;
     const canvas = document.createElement("canvas");
-    canvas.width  = video.videoWidth  || 640;
+    canvas.width = video.videoWidth || 640;
     canvas.height = video.videoHeight || 480;
-    canvas.getContext("2d").drawImage(video,0,0);
+    canvas.getContext("2d").drawImage(video, 0, 0);
     stopCam();
-    const imgData = canvas.toDataURL("image/jpeg",0.88);
+    const imgData = canvas.toDataURL("image/jpeg", 0.88);
     setCapturedImg(imgData);
     runAnalysis(imgData);
   };
 
   const handleFile = (e) => {
-    const file = e.target.files[0]; if(!file) return;
-    e.target.value="";
+    const file = e.target.files[0]; if (!file) return;
+    e.target.value = "";
     const reader = new FileReader();
     reader.onload = ev => {
-      const imgData = ev.target.result;
-      setCapturedImg(imgData);
-      runAnalysis(imgData);
+      setCapturedImg(ev.target.result);
+      runAnalysis(ev.target.result);
     };
     reader.readAsDataURL(file);
   };
 
   const runAnalysis = async (imgDataUrl) => {
-    setPhase("scanning"); setProgress("Sending to AI…");
-    const ANTHROPIC_KEY = import.meta.env.VITE_ANTHROPIC_KEY;
-    if(!ANTHROPIC_KEY){
-      setPhase("no_key"); return;
-    }
-    try{
-      // Extract base64 + mediaType from data URL
+    setPhase("scanning");
+    setProgress("Sending to Gemini AI");
+    try {
       const [header, base64] = imgDataUrl.split(",");
-      const mediaType = header.match(/:(.*?);/)?.[1]||"image/jpeg";
-      setProgress("Claude AI is analysing your part…");
-      const parsed = await analyseWithClaude(base64, mediaType);
+      const mediaType = header.match(/:(.*?);/)?.[1] || "image/jpeg";
+      const parsed = await analyseWithGemini(base64, mediaType);
       setResult(parsed);
       setPhase("done");
-    }catch(e){
-      console.error("AI scanner error:",e);
-      if(e.message==="NO_KEY"){
+    } catch(e) {
+      console.error("Gemini scanner error:", e);
+      if (e.message === "NO_KEY" || e.message === "BAD_KEY") {
         setPhase("no_key");
       } else {
-        setErrorMsg(e.message||"Analysis failed");
+        setErrorMsg(e.message || "Analysis failed — please try again");
         setPhase("error");
       }
     }
   };
 
   const applyResult = () => {
-    if(!result) return;
+    if (!result) return;
     onResult({
-      category:   result.category,
-      partName:   result.partName,
-      partNumber: result.partNumber,
-      condition:  result.condition,
-      year:       result.year,
-      description:result.description+(result.notes?"\n"+result.notes:""),
+      category:    result.category,
+      partName:    result.partName,
+      partNumber:  result.partNumber || "",
+      condition:   result.condition,
+      year:        result.year || "",
+      description: result.description || "",
     });
     onClose();
   };
 
-  // Always show close button in header
-  const Header = ({title}) => (
-    <div style={{flexShrink:0,padding:"10px 16px 0"}}>
-      <div style={{width:36,height:4,background:"#e0e0e0",borderRadius:2,margin:"0 auto 14px"}}/>
-      <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",paddingBottom:10}}>
-        <div style={{display:"flex",alignItems:"center",gap:8}}>
-          <div style={{width:28,height:28,borderRadius:7,background:"linear-gradient(135deg,#7c3aed,#4f46e5)",display:"flex",alignItems:"center",justifyContent:"center"}}>
-            <span style={{fontSize:14}}>🤖</span>
+  // Shared header — close button ALWAYS visible
+  const Header = ({ title = "AI Part Scanner", onBack = null }) => (
+    <div style={{ flexShrink: 0, padding: "10px 16px 0" }}>
+      <div style={{ width: 36, height: 4, background: "#e0e0e0", borderRadius: 2, margin: "0 auto 12px" }}/>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", paddingBottom: 10 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          {onBack && (
+            <button onClick={onBack} style={{ background: "none", border: "none", cursor: "pointer", padding: "2px 6px 2px 0", color: "#888", display:"flex",alignItems:"center" }}>
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><polyline points="15 18 9 12 15 6"/></svg>
+            </button>
+          )}
+          <div style={{ width: 26, height: 26, borderRadius: 7, background: "linear-gradient(135deg,#4285f4,#34a853)", display: "flex", alignItems: "center", justifyContent: "center" }}>
+            <span style={{ fontSize: 13 }}>✦</span>
           </div>
-          <span style={{color:"#111",fontWeight:800,fontSize:15}}>{title||"AI Part Scanner"}</span>
+          <span style={{ color: "#111", fontWeight: 800, fontSize: 15 }}>{title}</span>
+          <span style={{ background: "#e8f5e9", color: "#2e7d32", fontSize: 10, fontWeight: 700, padding: "2px 7px", borderRadius: 20, border: "1px solid #c8e6c9" }}>FREE</span>
         </div>
-        <button onClick={()=>{stopCam();onClose();}} style={{width:32,height:32,borderRadius:"50%",background:"#f5f5f5",border:"none",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",fontSize:18,color:"#666"}}>×</button>
+        <button
+          onClick={() => { stopCam(); onClose(); }}
+          style={{ width: 32, height: 32, borderRadius: "50%", background: "#f5f5f5", border: "none", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 18, color: "#555", fontWeight: 700, flexShrink: 0 }}>
+          ×
+        </button>
       </div>
     </div>
   );
 
-  // ── Phases ──────────────────────────────────────────────────────────────────
-
-  if(phase==="intro") return(
-    <div style={{position:"fixed",inset:0,zIndex:700,background:"rgba(0,0,0,0.55)",display:"flex",alignItems:"flex-end",justifyContent:"center"}}>
-      <div style={{background:"#fff",borderRadius:"22px 22px 0 0",width:"100%",maxWidth:430,maxHeight:"92vh",display:"flex",flexDirection:"column",overflow:"hidden"}}>
-        <Header/>
-        <div style={{padding:"20px 24px 32px",display:"flex",flexDirection:"column",gap:16,overflowY:"auto"}}>
-          <div style={{display:"flex",flexDirection:"column",alignItems:"center",gap:10,textAlign:"center",padding:"8px 0"}}>
-            <div style={{width:72,height:72,borderRadius:20,background:"linear-gradient(135deg,#7c3aed,#4f46e5)",display:"flex",alignItems:"center",justifyContent:"center",boxShadow:"0 8px 24px rgba(124,58,237,0.35)"}}>
-              <span style={{fontSize:34}}>🤖</span>
+  // ── INTRO ────────────────────────────────────────────────────────────────
+  if (phase === "intro") return (
+    <div style={{ position: "fixed", inset: 0, zIndex: 700, background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "flex-end", justifyContent: "center" }}>
+      <div style={{ background: "#fff", borderRadius: "22px 22px 0 0", width: "100%", maxWidth: 430, maxHeight: "92vh", display: "flex", flexDirection: "column", overflow: "hidden" }}>
+        <Header />
+        <div style={{ padding: "12px 20px 36px", overflowY: "auto", display: "flex", flexDirection: "column", gap: 16 }}>
+          {/* Hero */}
+          <div style={{ textAlign: "center", padding: "8px 0 4px" }}>
+            <div style={{ width: 68, height: 68, borderRadius: 20, background: "linear-gradient(135deg,#4285f4,#34a853)", display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 12px", boxShadow: "0 6px 20px rgba(66,133,244,0.35)" }}>
+              <span style={{ fontSize: 32 }}>🔍</span>
             </div>
-            <div>
-              <h3 style={{color:"#111",fontWeight:900,fontSize:18,margin:"0 0 6px"}}>AI Part Scanner</h3>
-              <p style={{color:"#888",fontSize:13,margin:0,lineHeight:1.6,maxWidth:260}}>Take a photo or upload an image — Claude AI will identify the part and auto-fill your listing.</p>
-            </div>
+            <h3 style={{ color: "#111", fontWeight: 900, fontSize: 18, margin: "0 0 6px" }}>Gemini AI Scanner</h3>
+            <p style={{ color: "#888", fontSize: 13, margin: 0, lineHeight: 1.6 }}>
+              Point your camera at any car part — Google Gemini AI will instantly identify it and auto-fill your listing.
+            </p>
           </div>
-          {[["📸","Take a photo","Use your camera for best results"],
-            ["🖼️","Upload image","Pick from your gallery"],
-            ["⚡","Instant results","Part name, category, condition & more"]
-          ].map(([e,t,d])=>(
-            <div key={t} style={{display:"flex",alignItems:"center",gap:12,background:"#f8f8f8",borderRadius:12,padding:"10px 14px"}}>
-              <span style={{fontSize:20,minWidth:28}}>{e}</span>
-              <div><p style={{color:"#111",fontWeight:700,fontSize:13,margin:0}}>{t}</p><p style={{color:"#aaa",fontSize:11,margin:0}}>{d}</p></div>
+          {/* Feature pills */}
+          {[
+            ["📸", "Photo or upload", "Camera snap or pick from gallery"],
+            ["🤖", "Gemini Vision AI", "Correctly identifies real car parts"],
+            ["⚡", "Auto-fills form",  "Part name, category, condition & more"],
+            ["💰", "100% free",        "1,500 scans/day — no cost ever"],
+          ].map(([icon, title, desc]) => (
+            <div key={title} style={{ display: "flex", alignItems: "center", gap: 12, background: "#f8f8f8", borderRadius: 12, padding: "10px 14px" }}>
+              <span style={{ fontSize: 20, minWidth: 28 }}>{icon}</span>
+              <div>
+                <p style={{ color: "#111", fontWeight: 700, fontSize: 13, margin: 0 }}>{title}</p>
+                <p style={{ color: "#aaa", fontSize: 11, margin: 0 }}>{desc}</p>
+              </div>
             </div>
           ))}
-          <div style={{display:"flex",gap:8,marginTop:4}}>
-            <button style={C.btnRed} onClick={startCamera}>📸 Use Camera</button>
-            <button style={{...C.btnGhost,flex:"0 0 auto",width:"auto",padding:"13px 20px"}} onClick={()=>fileRef.current.click()}>🖼️ Upload</button>
+          <div style={{ display: "flex", gap: 8, marginTop: 4 }}>
+            <button style={C.btnRed} onClick={startCamera}>📸 Open Camera</button>
+            <button style={{ ...C.btnGhost, flex: "0 0 auto", width: "auto", padding: "13px 18px" }} onClick={() => fileRef.current.click()}>🖼️ Upload</button>
           </div>
-          <input ref={fileRef} type="file" accept="image/*" style={{display:"none"}} onChange={handleFile}/>
+          <input ref={fileRef} type="file" accept="image/*" style={{ display: "none" }} onChange={handleFile} />
         </div>
       </div>
     </div>
   );
 
-  if(phase==="camera") return(
-    <div style={{position:"fixed",inset:0,zIndex:700,background:"#000",display:"flex",flexDirection:"column"}}>
-      <video ref={videoRef} autoPlay playsInline muted style={{flex:1,width:"100%",objectFit:"cover"}}/>
-      {/* Viewfinder overlay */}
-      <div style={{position:"absolute",inset:0,pointerEvents:"none",display:"flex",alignItems:"center",justifyContent:"center"}}>
-        <div style={{width:260,height:260,position:"relative"}}>
-          {[[{top:0,left:0},{borderTop:"3px solid #fff",borderLeft:"3px solid #fff"}],
-            [{top:0,right:0},{borderTop:"3px solid #fff",borderRight:"3px solid #fff"}],
-            [{bottom:0,left:0},{borderBottom:"3px solid #fff",borderLeft:"3px solid #fff"}],
-            [{bottom:0,right:0},{borderBottom:"3px solid #fff",borderRight:"3px solid #fff"}]
-          ].map(([pos,border],i)=>(
-            <div key={i} style={{position:"absolute",...pos,width:40,height:40,borderRadius:3,...border}}/>
-          ))}
+  // ── CAMERA ───────────────────────────────────────────────────────────────
+  if (phase === "camera") return (
+    <div style={{ position: "fixed", inset: 0, zIndex: 700, background: "#000", display: "flex", flexDirection: "column" }}>
+      <video ref={videoRef} autoPlay playsInline muted style={{ flex: 1, width: "100%", objectFit: "cover" }} />
+      {/* Viewfinder */}
+      <div style={{ position: "absolute", inset: 0, pointerEvents: "none", display: "flex", alignItems: "center", justifyContent: "center" }}>
+        <div style={{ width: 240, height: 240, position: "relative" }}>
+          {[
+            { top: 0, left: 0, borderTop: "3px solid #fff", borderLeft: "3px solid #fff" },
+            { top: 0, right: 0, borderTop: "3px solid #fff", borderRight: "3px solid #fff" },
+            { bottom: 0, left: 0, borderBottom: "3px solid #fff", borderLeft: "3px solid #fff" },
+            { bottom: 0, right: 0, borderBottom: "3px solid #fff", borderRight: "3px solid #fff" },
+          ].map((s, i) => <div key={i} style={{ position: "absolute", ...s, width: 36, height: 36, borderRadius: 3 }} />)}
         </div>
       </div>
-      <div style={{position:"absolute",top:"50%",left:0,right:0,textAlign:"center",transform:"translateY(-120px)"}}>
-        <span style={{background:"rgba(0,0,0,0.6)",color:"#fff",fontSize:12,padding:"6px 16px",borderRadius:20}}>
-          {cameraReady?"Centre the part in the frame":"Starting camera…"}
+      {/* Hint */}
+      <div style={{ position: "absolute", top: "calc(50% - 150px)", left: 0, right: 0, textAlign: "center" }}>
+        <span style={{ background: "rgba(0,0,0,0.6)", color: "#fff", fontSize: 12, padding: "5px 16px", borderRadius: 20 }}>
+          {cameraReady ? "Centre the part then tap capture" : "Starting camera…"}
         </span>
       </div>
-      {/* Bottom controls */}
-      <div style={{background:"rgba(0,0,0,0.85)",padding:"20px 32px 36px",display:"flex",alignItems:"center",justifyContent:"space-between"}}>
-        <button onClick={()=>{stopCam();setPhase("intro");}} style={{width:48,height:48,borderRadius:"50%",background:"rgba(255,255,255,0.15)",border:"none",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}}>
+      {/* Bottom bar */}
+      <div style={{ background: "rgba(0,0,0,0.85)", padding: "18px 32px 36px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+        {/* Back */}
+        <button onClick={() => { stopCam(); setPhase("intro"); }} style={{ width: 48, height: 48, borderRadius: "50%", background: "rgba(255,255,255,0.12)", border: "none", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2.5" strokeLinecap="round"><polyline points="15 18 9 12 15 6"/></svg>
         </button>
-        <button onClick={snap} disabled={!cameraReady} style={{width:72,height:72,borderRadius:"50%",background:cameraReady?"#fff":"#666",border:`4px solid ${cameraReady?"#e8172c":"#444"}`,cursor:cameraReady?"pointer":"not-allowed",display:"flex",alignItems:"center",justifyContent:"center",boxShadow:cameraReady?"0 0 0 6px rgba(232,23,44,0.25)":"none"}}>
-          <div style={{width:54,height:54,borderRadius:"50%",background:cameraReady?"#e8172c":"#555"}}/>
+        {/* Shutter */}
+        <button onClick={snapPhoto} disabled={!cameraReady} style={{ width: 72, height: 72, borderRadius: "50%", background: cameraReady ? "#fff" : "#555", border: `4px solid ${cameraReady ? "#e8172c" : "#444"}`, cursor: cameraReady ? "pointer" : "not-allowed", display: "flex", alignItems: "center", justifyContent: "center", boxShadow: cameraReady ? "0 0 0 6px rgba(232,23,44,0.2)" : "none" }}>
+          <div style={{ width: 54, height: 54, borderRadius: "50%", background: cameraReady ? "#e8172c" : "#444" }} />
         </button>
-        <button onClick={()=>fileRef.current.click()} style={{width:48,height:48,borderRadius:"50%",background:"rgba(255,255,255,0.15)",border:"none",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}}>
+        {/* Gallery */}
+        <button onClick={() => fileRef.current.click()} style={{ width: 48, height: 48, borderRadius: "50%", background: "rgba(255,255,255,0.12)", border: "none", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>
           <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2" strokeLinecap="round"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
         </button>
       </div>
-      <input ref={fileRef} type="file" accept="image/*" style={{display:"none"}} onChange={handleFile}/>
+      <input ref={fileRef} type="file" accept="image/*" style={{ display: "none" }} onChange={handleFile} />
     </div>
   );
 
-  if(phase==="camera_err") return(
-    <div style={{position:"fixed",inset:0,zIndex:700,background:"rgba(0,0,0,0.55)",display:"flex",alignItems:"flex-end",justifyContent:"center"}}>
-      <div style={{background:"#fff",borderRadius:"22px 22px 0 0",width:"100%",maxWidth:430,display:"flex",flexDirection:"column",overflow:"hidden"}}>
-        <Header/>
-        <div style={{padding:"24px",display:"flex",flexDirection:"column",alignItems:"center",gap:14,textAlign:"center",paddingBottom:36}}>
-          <span style={{fontSize:48}}>📷</span>
+  // ── CAMERA ERROR ─────────────────────────────────────────────────────────
+  if (phase === "camera_err") return (
+    <div style={{ position: "fixed", inset: 0, zIndex: 700, background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "flex-end", justifyContent: "center" }}>
+      <div style={{ background: "#fff", borderRadius: "22px 22px 0 0", width: "100%", maxWidth: 430, display: "flex", flexDirection: "column", overflow: "hidden" }}>
+        <Header />
+        <div style={{ padding: "28px 24px 44px", display: "flex", flexDirection: "column", alignItems: "center", gap: 14, textAlign: "center" }}>
+          <span style={{ fontSize: 52 }}>📷</span>
           <div>
-            <p style={{color:"#111",fontWeight:700,fontSize:16,margin:"0 0 6px"}}>Camera access denied</p>
-            <p style={{color:"#888",fontSize:13,margin:0,lineHeight:1.6}}>No problem — upload a photo from your gallery to identify the part.</p>
+            <p style={{ color: "#111", fontWeight: 700, fontSize: 16, margin: "0 0 6px" }}>Camera access denied</p>
+            <p style={{ color: "#888", fontSize: 13, margin: 0, lineHeight: 1.6 }}>No problem — upload a photo from your gallery and Gemini will still identify the part.</p>
           </div>
-          <button style={C.btnRed} onClick={()=>fileRef.current.click()}>🖼️ Choose from Gallery</button>
-          <input ref={fileRef} type="file" accept="image/*" style={{display:"none"}} onChange={handleFile}/>
+          <button style={C.btnRed} onClick={() => fileRef.current.click()}>🖼️ Choose from Gallery</button>
+          <input ref={fileRef} type="file" accept="image/*" style={{ display: "none" }} onChange={handleFile} />
         </div>
       </div>
     </div>
   );
 
-  if(phase==="scanning") return(
-    <div style={{position:"fixed",inset:0,zIndex:700,background:"rgba(0,0,0,0.55)",display:"flex",alignItems:"flex-end",justifyContent:"center"}}>
-      <div style={{background:"#fff",borderRadius:"22px 22px 0 0",width:"100%",maxWidth:430,display:"flex",flexDirection:"column",overflow:"hidden"}}>
-        <Header title="Analysing…"/>
-        <div style={{padding:"28px 24px 40px",display:"flex",flexDirection:"column",alignItems:"center",gap:18}}>
-          {capturedImg&&<img src={capturedImg} alt="" style={{width:"100%",maxHeight:200,objectFit:"contain",borderRadius:12,border:"1px solid #f0f0f0"}}/>}
-          <div style={{display:"flex",flexDirection:"column",alignItems:"center",gap:10}}>
-            <div style={{width:44,height:44,borderRadius:"50%",border:"4px solid #7c3aed",borderTopColor:"transparent",animation:"spin .8s linear infinite"}}>
+  // ── SCANNING ─────────────────────────────────────────────────────────────
+  if (phase === "scanning") return (
+    <div style={{ position: "fixed", inset: 0, zIndex: 700, background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "flex-end", justifyContent: "center" }}>
+      <div style={{ background: "#fff", borderRadius: "22px 22px 0 0", width: "100%", maxWidth: 430, display: "flex", flexDirection: "column", overflow: "hidden" }}>
+        <Header title="Analysing…" />
+        <div style={{ padding: "20px 20px 44px", display: "flex", flexDirection: "column", alignItems: "center", gap: 20 }}>
+          {capturedImg && <img src={capturedImg} alt="" style={{ width: "100%", maxHeight: 200, objectFit: "contain", borderRadius: 12, border: "1px solid #f0f0f0" }} />}
+          {/* Google-coloured spinner */}
+          <div style={{ position: "relative", width: 52, height: 52 }}>
+            <svg width="52" height="52" viewBox="0 0 52 52" style={{ animation: "spin 1s linear infinite" }}>
               <style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style>
-            </div>
-            <p style={{color:"#111",fontWeight:700,fontSize:15,margin:0}}>{progress||"Contacting Claude AI…"}</p>
-            <p style={{color:"#aaa",fontSize:12,margin:0}}>Usually takes 3–6 seconds</p>
+              <circle cx="26" cy="26" r="20" fill="none" stroke="#f0f0f0" strokeWidth="5"/>
+              <circle cx="26" cy="26" r="20" fill="none" stroke="url(#g)" strokeWidth="5" strokeDasharray="80 46" strokeLinecap="round"/>
+              <defs>
+                <linearGradient id="g" x1="0%" y1="0%" x2="100%" y2="0%">
+                  <stop offset="0%" stopColor="#4285f4"/>
+                  <stop offset="33%" stopColor="#34a853"/>
+                  <stop offset="66%" stopColor="#fbbc05"/>
+                  <stop offset="100%" stopColor="#ea4335"/>
+                </linearGradient>
+              </defs>
+            </svg>
+          </div>
+          <div style={{ textAlign: "center" }}>
+            <p style={{ color: "#111", fontWeight: 700, fontSize: 15, margin: "0 0 4px" }}>{progress}{dots}</p>
+            <p style={{ color: "#aaa", fontSize: 12, margin: 0 }}>Usually takes 2–4 seconds</p>
           </div>
         </div>
       </div>
     </div>
   );
 
-  if(phase==="done"&&result) return(
-    <div style={{position:"fixed",inset:0,zIndex:700,background:"rgba(0,0,0,0.55)",display:"flex",alignItems:"flex-end",justifyContent:"center"}}>
-      <div style={{background:"#fff",borderRadius:"22px 22px 0 0",width:"100%",maxWidth:430,maxHeight:"92vh",display:"flex",flexDirection:"column",overflow:"hidden"}}>
-        <Header title="AI Result"/>
-        <div style={{flex:1,overflowY:"auto",padding:"0 16px 32px",display:"flex",flexDirection:"column",gap:12}}>
-          {/* Photo + confidence badge */}
-          {capturedImg&&(
-            <div style={{position:"relative",borderRadius:12,overflow:"hidden",border:"1px solid #f0f0f0",marginTop:4}}>
-              <img src={capturedImg} alt="" style={{width:"100%",maxHeight:180,objectFit:"cover",display:"block"}}/>
-              <div style={{position:"absolute",top:8,right:8,background:result.confidence>60?"rgba(22,163,74,0.92)":"rgba(245,158,11,0.95)",borderRadius:20,padding:"3px 10px"}}>
-                <span style={{color:"#fff",fontSize:11,fontWeight:800}}>{result.confidence}% confident</span>
+  // ── DONE ─────────────────────────────────────────────────────────────────
+  if (phase === "done" && result) return (
+    <div style={{ position: "fixed", inset: 0, zIndex: 700, background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "flex-end", justifyContent: "center" }}>
+      <div style={{ background: "#fff", borderRadius: "22px 22px 0 0", width: "100%", maxWidth: 430, maxHeight: "92vh", display: "flex", flexDirection: "column", overflow: "hidden" }}>
+        <Header title="Part Identified ✓" />
+        <div style={{ flex: 1, overflowY: "auto", padding: "0 16px 36px", display: "flex", flexDirection: "column", gap: 12 }}>
+          {/* Photo + confidence */}
+          {capturedImg && (
+            <div style={{ position: "relative", borderRadius: 12, overflow: "hidden", border: "1px solid #f0f0f0", marginTop: 4 }}>
+              <img src={capturedImg} alt="" style={{ width: "100%", maxHeight: 190, objectFit: "cover", display: "block" }} />
+              <div style={{ position: "absolute", top: 8, right: 8, background: (result.confidence||0) > 60 ? "rgba(22,163,74,0.92)" : "rgba(245,158,11,0.92)", borderRadius: 20, padding: "3px 10px" }}>
+                <span style={{ color: "#fff", fontSize: 11, fontWeight: 800 }}>{result.confidence || "~80"}% confident</span>
               </div>
             </div>
           )}
-          {/* Banner */}
-          <div style={{background:"linear-gradient(135deg,#f5f0ff,#ede9fe)",borderRadius:12,padding:"12px 14px",border:"1px solid #ddd6fe",display:"flex",gap:10,alignItems:"center"}}>
-            <span style={{fontSize:20}}>🤖</span>
+          {/* Gemini badge */}
+          <div style={{ background: "linear-gradient(135deg,#e8f0fe,#e6f4ea)", borderRadius: 12, padding: "11px 14px", border: "1px solid #c5d7f5", display: "flex", gap: 10, alignItems: "center" }}>
+            <span style={{ fontSize: 20 }}>✦</span>
             <div>
-              <p style={{color:"#6d28d9",fontWeight:800,fontSize:13,margin:0}}>Claude AI identified this part</p>
-              <p style={{color:"#8b5cf6",fontSize:11,margin:0}}>{result.description}</p>
+              <p style={{ color: "#1a73e8", fontWeight: 800, fontSize: 13, margin: 0 }}>Identified by Gemini AI</p>
+              <p style={{ color: "#5f9ea0", fontSize: 11, margin: 0 }}>{result.description || `${result.partName} — ${result.category}`}</p>
             </div>
           </div>
           {/* Fields */}
-          <div style={{background:"#fff",borderRadius:14,border:"1px solid #f0f0f0",overflow:"hidden"}}>
-            <div style={{background:"#fafafa",padding:"10px 14px",borderBottom:"1px solid #f0f0f0"}}>
-              <p style={{color:"#111",fontWeight:800,fontSize:13,margin:0}}>Will auto-fill these fields</p>
+          <div style={{ background: "#fff", borderRadius: 14, border: "1px solid #f0f0f0", overflow: "hidden" }}>
+            <div style={{ background: "#fafafa", padding: "10px 14px", borderBottom: "1px solid #f0f0f0" }}>
+              <p style={{ color: "#111", fontWeight: 800, fontSize: 13, margin: 0 }}>Will auto-fill these fields</p>
             </div>
             {[
-              ["Category",    result.category,    true],
-              ["Part Name",   result.partName,     !!result.partName],
-              ["Part No.",    result.partNumber||"Not found", !!result.partNumber],
-              ["Condition",   result.condition,    true],
-              ["Year",        result.year||"Not found", !!result.year],
-            ].map(([label,val,found])=>(
-              <div key={label} style={{display:"flex",alignItems:"center",gap:10,padding:"9px 14px",borderBottom:"1px solid #f8f8f8"}}>
-                <div style={{width:7,height:7,borderRadius:"50%",flexShrink:0,background:found?"#16a34a":"#e0e0e0"}}/>
-                <p style={{color:"#aaa",fontSize:10,fontWeight:700,textTransform:"uppercase",margin:0,minWidth:70}}>{label}</p>
-                <p style={{color:"#111",fontSize:13,fontWeight:600,margin:0,flex:1}}>{val}</p>
-                {found&&<span style={{color:"#16a34a",fontSize:10,fontWeight:700}}>✓</span>}
+              ["Category",   result.category,               true],
+              ["Part Name",  result.partName,                !!result.partName],
+              ["Part No.",   result.partNumber || "—",       !!result.partNumber],
+              ["Condition",  result.condition,               true],
+              ["Year",       result.year       || "—",       !!result.year],
+            ].map(([label, val, found]) => (
+              <div key={label} style={{ display: "flex", alignItems: "center", gap: 10, padding: "9px 14px", borderBottom: "1px solid #f8f8f8" }}>
+                <div style={{ width: 7, height: 7, borderRadius: "50%", flexShrink: 0, background: found ? "#34a853" : "#e0e0e0" }} />
+                <p style={{ color: "#aaa", fontSize: 10, fontWeight: 700, textTransform: "uppercase", margin: 0, minWidth: 68 }}>{label}</p>
+                <p style={{ color: "#111", fontSize: 13, fontWeight: 600, margin: 0, flex: 1 }}>{val}</p>
+                {found && <span style={{ color: "#34a853", fontSize: 10, fontWeight: 700 }}>✓</span>}
               </div>
             ))}
           </div>
-          {result.notes&&(
-            <div style={{background:"#fffbeb",borderRadius:10,padding:"10px 14px",border:"1px solid #fde68a"}}>
-              <p style={{color:"#92400e",fontSize:11,fontWeight:700,margin:"0 0 4px"}}>💡 AI Notes</p>
-              <p style={{color:"#78350f",fontSize:12,margin:0,lineHeight:1.5}}>{result.notes}</p>
-            </div>
-          )}
           {/* Actions */}
-          <div style={{display:"flex",gap:8,paddingTop:4}}>
-            <button style={{...C.btnGhost,flex:1}} onClick={()=>{setCapturedImg(null);setResult(null);setPhase("intro");}}>🔄 Retry</button>
-            <button style={{...C.btnRed,flex:2,background:"linear-gradient(135deg,#7c3aed,#6d28d9)",boxShadow:"0 4px 14px rgba(124,58,237,0.4)"}}
-              onClick={applyResult}>⚡ Apply to Form</button>
+          <div style={{ display: "flex", gap: 8, paddingTop: 4 }}>
+            <button style={{ ...C.btnGhost, flex: 1 }} onClick={() => { setCapturedImg(null); setResult(null); setPhase("intro"); }}>
+              🔄 Retry
+            </button>
+            <button
+              style={{ ...C.btnRed, flex: 2, background: "linear-gradient(135deg,#1a73e8,#0d5fb5)", boxShadow: "0 4px 14px rgba(26,115,232,0.4)" }}
+              onClick={applyResult}>
+              ⚡ Apply to Form
+            </button>
           </div>
         </div>
       </div>
     </div>
   );
 
-  if(phase==="no_key") return(
-    <div style={{position:"fixed",inset:0,zIndex:700,background:"rgba(0,0,0,0.55)",display:"flex",alignItems:"flex-end",justifyContent:"center"}}>
-      <div style={{background:"#fff",borderRadius:"22px 22px 0 0",width:"100%",maxWidth:430,display:"flex",flexDirection:"column",overflow:"hidden"}}>
-        <Header title="Setup Required"/>
-        <div style={{padding:"24px",display:"flex",flexDirection:"column",gap:14,paddingBottom:36}}>
-          <div style={{background:"#fffbeb",borderRadius:12,padding:"14px",border:"1px solid #fde68a"}}>
-            <p style={{color:"#92400e",fontWeight:700,fontSize:14,margin:"0 0 8px"}}>⚠️ Anthropic API key needed</p>
-            <p style={{color:"#78350f",fontSize:12,margin:0,lineHeight:1.7}}>
-              The AI scanner uses Claude AI to identify parts.<br/>
-              Add <code style={{background:"#fef3c7",padding:"1px 5px",borderRadius:4}}>VITE_ANTHROPIC_KEY</code> to your Vercel environment variables.
+  // ── NO KEY ───────────────────────────────────────────────────────────────
+  if (phase === "no_key") return (
+    <div style={{ position: "fixed", inset: 0, zIndex: 700, background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "flex-end", justifyContent: "center" }}>
+      <div style={{ background: "#fff", borderRadius: "22px 22px 0 0", width: "100%", maxWidth: 430, display: "flex", flexDirection: "column", overflow: "hidden" }}>
+        <Header title="Setup Required" />
+        <div style={{ padding: "16px 20px 44px", display: "flex", flexDirection: "column", gap: 14 }}>
+          <div style={{ background: "#fff8e1", borderRadius: 12, padding: "14px", border: "1px solid #ffe082" }}>
+            <p style={{ color: "#e65100", fontWeight: 700, fontSize: 14, margin: "0 0 6px" }}>⚙️ Google Gemini API key needed</p>
+            <p style={{ color: "#bf360c", fontSize: 12, margin: 0, lineHeight: 1.7 }}>
+              Add <code style={{ background: "#fff3e0", padding: "1px 5px", borderRadius: 4, fontSize: 11 }}>VITE_GEMINI_KEY</code> to your Vercel environment variables to enable AI scanning.
             </p>
           </div>
-          <div style={{background:"#f8f8f8",borderRadius:10,padding:"12px 14px"}}>
-            <p style={{color:"#666",fontSize:12,fontWeight:700,margin:"0 0 6px"}}>How to set it up:</p>
-            <p style={{color:"#888",fontSize:12,margin:0,lineHeight:1.8}}>
-              1. Go to <strong>console.anthropic.com</strong><br/>
-              2. Create an API key<br/>
-              3. Add to Vercel: <strong>Settings → Environment Variables</strong><br/>
-              4. Name: <code>VITE_ANTHROPIC_KEY</code> · Value: your key<br/>
-              5. Redeploy
-            </p>
+          <div style={{ background: "#f8f8f8", borderRadius: 12, padding: "14px 16px" }}>
+            <p style={{ color: "#333", fontSize: 13, fontWeight: 700, margin: "0 0 10px" }}>🚀 Quick setup (5 minutes, free):</p>
+            {[
+              ["1", "Go to aistudio.google.com"],
+              ["2", "Sign in with Google → Get API Key"],
+              ["3", "Vercel → Your project → Settings → Environment Variables"],
+              ["4", "Add: VITE_GEMINI_KEY = your-key-here"],
+              ["5", "Redeploy → scanner works instantly"],
+            ].map(([n, t]) => (
+              <div key={n} style={{ display: "flex", gap: 10, alignItems: "flex-start", marginBottom: 7 }}>
+                <div style={{ width: 20, height: 20, borderRadius: "50%", background: "#1a73e8", color: "#fff", fontSize: 11, fontWeight: 700, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, marginTop: 1 }}>{n}</div>
+                <p style={{ color: "#555", fontSize: 12, margin: 0, lineHeight: 1.5 }}>{t}</p>
+              </div>
+            ))}
           </div>
           <button style={C.btnGhost} onClick={onClose}>Close</button>
         </div>
@@ -2278,36 +2328,40 @@ function AIPartScanner({onResult, onClose}){
     </div>
   );
 
-  if(phase==="error") return(
-    <div style={{position:"fixed",inset:0,zIndex:700,background:"rgba(0,0,0,0.55)",display:"flex",alignItems:"flex-end",justifyContent:"center"}}>
-      <div style={{background:"#fff",borderRadius:"22px 22px 0 0",width:"100%",maxWidth:430,display:"flex",flexDirection:"column",overflow:"hidden"}}>
-        <Header title="Analysis Failed"/>
-        <div style={{padding:"24px",display:"flex",flexDirection:"column",alignItems:"center",gap:14,textAlign:"center",paddingBottom:36}}>
-          <span style={{fontSize:44}}>⚠️</span>
-          <div>
-            <p style={{color:"#111",fontWeight:700,fontSize:15,margin:"0 0 6px"}}>Couldn't analyse the photo</p>
-            <p style={{color:"#888",fontSize:12,margin:0,lineHeight:1.6}}>{errorMsg||"Please check your connection and try again."}</p>
+  // ── ERROR ────────────────────────────────────────────────────────────────
+  if (phase === "error") return (
+    <div style={{ position: "fixed", inset: 0, zIndex: 700, background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "flex-end", justifyContent: "center" }}>
+      <div style={{ background: "#fff", borderRadius: "22px 22px 0 0", width: "100%", maxWidth: 430, display: "flex", flexDirection: "column", overflow: "hidden" }}>
+        <Header title="Scan Failed" />
+        <div style={{ padding: "28px 24px 44px", display: "flex", flexDirection: "column", alignItems: "center", gap: 14, textAlign: "center" }}>
+          <div style={{ width: 60, height: 60, borderRadius: "50%", background: "#fff5f5", border: "2px solid #fecaca", display: "flex", alignItems: "center", justifyContent: "center" }}>
+            <span style={{ fontSize: 28 }}>⚠️</span>
           </div>
-          <div style={{display:"flex",gap:8,width:"100%"}}>
-            <button style={{...C.btnGhost,flex:1}} onClick={()=>{setCapturedImg(null);setResult(null);setPhase("intro");}}>Try Again</button>
-            <button style={{...C.btnRed,flex:1}} onClick={onClose}>Close</button>
+          <div>
+            <p style={{ color: "#111", fontWeight: 700, fontSize: 15, margin: "0 0 6px" }}>Couldn't identify the part</p>
+            <p style={{ color: "#888", fontSize: 12, margin: 0, lineHeight: 1.6 }}>{errorMsg || "Check your connection and try again."}</p>
+          </div>
+          <div style={{ display: "flex", gap: 8, width: "100%" }}>
+            <button style={{ ...C.btnGhost, flex: 1 }} onClick={() => { setCapturedImg(null); setResult(null); setPhase("intro"); }}>Try Again</button>
+            <button style={{ ...C.btnRed, flex: 1 }} onClick={() => { stopCam(); onClose(); }}>Close</button>
           </div>
         </div>
       </div>
     </div>
   );
 
-  // Fallback — should never reach here but always closeable
-  return(
-    <div style={{position:"fixed",inset:0,zIndex:700,background:"rgba(0,0,0,0.55)",display:"flex",alignItems:"flex-end",justifyContent:"center"}}>
-      <div style={{background:"#fff",borderRadius:"22px 22px 0 0",width:"100%",maxWidth:430,padding:24,display:"flex",flexDirection:"column",gap:12}}>
-        <Header/>
-        <button style={C.btnGhost} onClick={onClose}>Close</button>
+  // Fallback — always closeable
+  return (
+    <div style={{ position: "fixed", inset: 0, zIndex: 700, background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "flex-end", justifyContent: "center" }}>
+      <div style={{ background: "#fff", borderRadius: "22px 22px 0 0", width: "100%", maxWidth: 430, padding: 24, display: "flex", flexDirection: "column", gap: 12 }}>
+        <button style={C.btnGhost} onClick={() => { stopCam(); onClose(); }}>Close</button>
       </div>
     </div>
   );
 }
 // ─── End AI Part Scanner ──────────────────────────────────────────────────────
+
+
 
 
 function AddListingScreen({currentUser,setListings,notify,setScreen}){
