@@ -927,14 +927,14 @@ function rowToListing(r){
   };
 }
 // Profile row → app user object (merges auth email)
-function profileToUser(profile, authEmail=""){
+function profileToUser(profile, authEmail="", emailConfirmed=false){
   return{
     id:profile.id,
     name:profile.name,
     email:authEmail||profile.email||"",
     phone:profile.phone||"",
     role:profile.role,
-    verified:true,
+    emailVerified:emailConfirmed,
     ratings:profile.ratings||[],
     carPrefs:profile.car_prefs||[],
     currency:profile.currency||"USD",
@@ -989,7 +989,7 @@ export default function App(){
       if(session){
         const {data:profile}=await sb.from("profiles").select("*").eq("id",session.user.id).single();
         if(profile){
-          const u=profileToUser(profile,session.user.email);
+          const u=profileToUser(profile,session.user.email,!!session.user.email_confirmed_at);
           setCurrentUser(u);
           setScreen("home");
         }
@@ -1006,7 +1006,7 @@ export default function App(){
             await new Promise(r=>setTimeout(r,800)); // wait 800ms and retry
           }
           if(profile){
-            const u=profileToUser(profile,session.user.email);
+            const u=profileToUser(profile,session.user.email,!!session.user.email_confirmed_at);
             setCurrentUser(u);
             setUsers(us=>us.find(x=>x.id===u.id)?us.map(x=>x.id===u.id?u:x):[...us,u]);
             setScreen("home");
@@ -1023,7 +1023,7 @@ export default function App(){
               car_prefs:[],
             };
             await sb.from("profiles").upsert(newProfile,{onConflict:"id"});
-            const u=profileToUser(newProfile,session.user.email);
+            const u=profileToUser(newProfile,session.user.email,!!session.user.email_confirmed_at);
             setCurrentUser(u);
             setUsers(us=>us.find(x=>x.id===u.id)?us.map(x=>x.id===u.id?u:x):[...us,u]);
             setScreen("home");
@@ -1735,7 +1735,7 @@ function ListingScreen({listing:l,currentUser,onBack,openChat,markSold,deleteLis
             </div>
           </div>
           {!l.sold&&<div style={{display:"flex",gap:8,marginTop:12}}>
-            <a href={`tel:${l.sellerPhone}`}   style={{flex:1,display:"flex",alignItems:"center",justifyContent:"center",gap:6,background:"#fff",border:"1.5px solid #e0e0e0",borderRadius:8,padding:"8px",fontWeight:600,fontSize:13,color:"#333",textDecoration:"none",cursor:"pointer"}}><Icon name="phone" size={15} color="#333"/> Call</a>
+            <a href={`tel:${l.sellerPhone}`} style={{flex:1,display:"flex",alignItems:"center",justifyContent:"center",gap:6,background:"#16a34a",border:"none",borderRadius:8,padding:"10px",fontWeight:700,fontSize:13,color:"#fff",textDecoration:"none",cursor:"pointer",boxShadow:"0 2px 8px rgba(22,163,74,0.3)"}}><Icon name="phone" size={15} color="#fff"/> Call Seller</a>
             <a href={`mailto:${l.sellerEmail}`} style={{flex:1,display:"flex",alignItems:"center",justifyContent:"center",gap:6,background:"#fff",border:"1.5px solid #e0e0e0",borderRadius:8,padding:"8px",fontWeight:600,fontSize:13,color:"#333",textDecoration:"none",cursor:"pointer"}}><Icon name="mail"  size={15} color="#333"/> Email</a>
           </div>}
         </div>
@@ -2367,11 +2367,11 @@ function AIPartScanner({ onResult, onClose }) {
 function AddListingScreen({currentUser,setListings,notify,setScreen}){
   const [f,sf]=useState({make:"",model:"",year:"",vin:"",partName:"",partNumber:"",category:"Body Parts",condition:"Good",price:"",description:"",location:""});
   const [photos,setPhotos]=useState([]);
-  const [showCamera,setShowCamera]=useState(false);
   const [showPhotoMenu,setShowPhotoMenu]=useState(false);
   const [showAIScanner,setShowAIScanner] = useState(false);
   const [aiApplied,setAiApplied]         = useState(false);
   const fileRef=useRef();
+  const cameraRef=useRef();
   const set=(k,v)=>sf(p=>({...p,[k]:v}));
 
   const applyAIScan = (result) => {
@@ -2398,12 +2398,7 @@ function AddListingScreen({currentUser,setListings,notify,setScreen}){
     setPhotos(p=>[...p,...compressed].slice(0,10));
     setCompressing(false);
   };
-  const handleCapture=async(dataUrl)=>{
-    setCompressing(true);
-    const compressed=await compressImage(dataUrl);
-    setPhotos(p=>[...p,compressed||dataUrl].slice(0,10));
-    setCompressing(false);
-  };
+
   const removePhoto=(i)=>setPhotos(ph=>ph.filter((_,j)=>j!==i));
 
   const submit=async()=>{
@@ -2428,7 +2423,6 @@ function AddListingScreen({currentUser,setListings,notify,setScreen}){
 
   return(
     <>
-    {showCamera&&<CameraModal onCapture={handleCapture} onClose={()=>setShowCamera(false)}/>}
     {showAIScanner&&<AIPartScanner onResult={applyAIScan} onClose={()=>setShowAIScanner(false)}/>}
 
     {/* Photo Source Menu */}
@@ -2439,11 +2433,11 @@ function AddListingScreen({currentUser,setListings,notify,setScreen}){
           <p style={{color:"#111",fontWeight:800,fontSize:16,margin:"0 0 16px",textAlign:"center"}}>Add Photo</p>
           <div style={{display:"flex",flexDirection:"column",gap:10}}>
             <button style={{display:"flex",alignItems:"center",gap:14,background:"#fff5f5",border:"1.5px solid #fecaca",borderRadius:14,padding:"16px 18px",cursor:"pointer",textAlign:"left"}}
-              onClick={()=>{setShowPhotoMenu(false);setTimeout(()=>setShowCamera(true),200);}}>
+              onClick={()=>{setShowPhotoMenu(false);setTimeout(()=>cameraRef.current.click(),200);}}>
               <span style={{fontSize:28}}>📷</span>
               <div>
                 <p style={{color:"#111",fontWeight:700,fontSize:15,margin:0}}>Take Photo</p>
-                <p style={{color:"#888",fontSize:12,margin:"2px 0 0"}}>Use camera to snap a picture now</p>
+                <p style={{color:"#888",fontSize:12,margin:"2px 0 0"}}>Open camera and snap a picture</p>
               </div>
             </button>
             <button style={{display:"flex",alignItems:"center",gap:14,background:"#f5f5f5",border:"1.5px solid #e0e0e0",borderRadius:14,padding:"16px 18px",cursor:"pointer",textAlign:"left"}}
@@ -2549,16 +2543,10 @@ function AddListingScreen({currentUser,setListings,notify,setScreen}){
               <div style={{fontSize:36,marginBottom:8}}>📷</div>
               <p style={{color:"#888",fontSize:13,fontWeight:600,margin:"0 0 4px"}}>No photos yet</p>
               <p style={{color:"#bbb",fontSize:12,margin:"0 0 16px"}}>Add up to 10 photos of the part</p>
-              <div style={{display:"flex",gap:10,justifyContent:"center"}}>
-                <button style={{display:"flex",alignItems:"center",gap:6,background:"#e8172c",border:"none",borderRadius:10,padding:"10px 16px",color:"#fff",fontWeight:700,fontSize:13,cursor:"pointer"}}
-                  onClick={()=>{if(photos.length<10)setShowCamera(true);}}>
-                  📷 Camera
-                </button>
-                <button style={{display:"flex",alignItems:"center",gap:6,background:"#fff",border:"1.5px solid #e0e0e0",borderRadius:10,padding:"10px 16px",color:"#333",fontWeight:700,fontSize:13,cursor:"pointer"}}
-                  onClick={()=>fileRef.current.click()}>
-                  🖼️ Gallery
-                </button>
-              </div>
+              <button style={{display:"flex",alignItems:"center",gap:8,background:"#e8172c",border:"none",borderRadius:10,padding:"11px 24px",color:"#fff",fontWeight:700,fontSize:14,cursor:"pointer"}}
+                onClick={()=>setShowPhotoMenu(true)}>
+                📷 Add Photos
+              </button>
             </div>
           )}
 
@@ -2584,19 +2572,14 @@ function AddListingScreen({currentUser,setListings,notify,setScreen}){
           )}
 
           {photos.length>0&&(
-            <div style={{display:"flex",gap:8,marginTop:4}}>
-              <button style={{flex:1,display:"flex",alignItems:"center",justifyContent:"center",gap:6,background:"#fff5f5",border:"1.5px solid #fecaca",borderRadius:10,padding:"10px",color:"#e8172c",fontWeight:700,fontSize:13,cursor:"pointer"}}
-                onClick={()=>{if(photos.length<10)setShowCamera(true);}}>
-                📷 Take Photo
-              </button>
-              <button style={{flex:1,display:"flex",alignItems:"center",justifyContent:"center",gap:6,background:"#f5f5f5",border:"1.5px solid #e0e0e0",borderRadius:10,padding:"10px",color:"#333",fontWeight:700,fontSize:13,cursor:"pointer"}}
-                onClick={()=>fileRef.current.click()}>
-                🖼️ Gallery
-              </button>
-            </div>
+            <button style={{display:"flex",alignItems:"center",justifyContent:"center",gap:6,background:"#fff5f5",border:"1.5px solid #fecaca",borderRadius:10,padding:"10px",color:"#e8172c",fontWeight:700,fontSize:13,cursor:"pointer",width:"100%"}}
+              onClick={()=>setShowPhotoMenu(true)}>
+              📷 Add More Photos
+            </button>
           )}
 
           <input ref={fileRef} type="file" accept="image/*" multiple style={{display:"none"}} onChange={handleFiles}/>
+          <input ref={cameraRef} type="file" accept="image/*" capture="environment" style={{display:"none"}} onChange={handleFiles}/>
           {photos.length>0&&(
             <div style={{display:"flex",alignItems:"center",gap:8,background:"#f0fdf4",borderRadius:8,padding:"7px 12px",border:"1px solid #dcfce7"}}>
               <span style={{fontSize:13}}>🗜️</span>
@@ -2862,13 +2845,18 @@ function ProfileScreen({currentUser,users,setUsers,setCurrentUser,setScreen,view
                  :<p style={{color:"#bbb",fontSize:13,margin:0}}>No ratings yet</p>}
         </div>}
         <div style={{marginTop:14,display:"flex",flexDirection:"column",gap:10}}>
-          {[{icon:"mail",val:currentUser.email},{icon:"phone",val:currentUser.phone}].map((r,i)=>(
-            <div key={i} style={{display:"flex",alignItems:"center",gap:10}}>
-              <Icon name={r.icon} size={15} color="#bbb"/>
-              <span style={{color:"#333",fontSize:13,flex:1}}>{r.val}</span>
-              <span style={{color:"#16a34a",fontSize:11,fontWeight:700}}>✓ Verified</span>
-            </div>
-          ))}
+          <div style={{display:"flex",alignItems:"center",gap:10}}>
+            <Icon name="mail" size={15} color="#bbb"/>
+            <span style={{color:"#333",fontSize:13,flex:1}}>{currentUser.email}</span>
+            {currentUser.emailVerified
+              ? <span style={{color:"#16a34a",fontSize:11,fontWeight:700,background:"#f0fdf4",border:"1px solid #bbf7d0",borderRadius:20,padding:"2px 8px"}}>✓ Verified</span>
+              : <span style={{color:"#f59e0b",fontSize:11,fontWeight:700,background:"#fffbeb",border:"1px solid #fde68a",borderRadius:20,padding:"2px 8px"}}>⚠ Unverified</span>
+            }
+          </div>
+          <div style={{display:"flex",alignItems:"center",gap:10}}>
+            <Icon name="phone" size={15} color="#bbb"/>
+            <span style={{color:"#333",fontSize:13,flex:1}}>{currentUser.phone||"No phone set"}</span>
+          </div>
         </div>
       </div>
 
