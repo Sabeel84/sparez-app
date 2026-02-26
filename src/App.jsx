@@ -817,12 +817,12 @@ function CarPrefsManager({currentUser,users,setUsers}){
     const newPrefs=[...(prefs),pref];
     setUsers(us=>us.map(u=>u.id===currentUser.id?{...u,carPrefs:newPrefs}:u));
     setMake("");setModel("");setYear("");
-    try{const sb=await getSB();await sb.from("users").update({car_prefs:newPrefs}).eq("id",currentUser.id);}catch(e){console.error(e);}
+    try{const sb=await getSB();await sb.from("profiles").update({car_prefs:newPrefs}).eq("id",currentUser.id);}catch(e){console.error(e);}
   };
   const removePref=async(id)=>{
     const newPrefs=prefs.filter(p=>p.id!==id);
     setUsers(us=>us.map(u=>u.id===currentUser.id?{...u,carPrefs:newPrefs}:u));
-    try{const sb=await getSB();await sb.from("users").update({car_prefs:newPrefs}).eq("id",currentUser.id);}catch(e){console.error(e);}
+    try{const sb=await getSB();await sb.from("profiles").update({car_prefs:newPrefs}).eq("id",currentUser.id);}catch(e){console.error(e);}
   };
 
   return(
@@ -882,26 +882,26 @@ function CarPrefsManager({currentUser,users,setUsers}){
 }
 
 // ─── Supabase Client ──────────────────────────────────────────────────────────
-const SUPABASE_URL  = import.meta.env.VITE_SUPABASE_URL;
-const SUPABASE_KEY  = import.meta.env.VITE_SUPABASE_ANON_KEY;
+const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
+const SUPABASE_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY;
 
-// Lazy-load Supabase from CDN (no npm install needed)
 let _sb = null;
 async function getSB(){
   if(_sb) return _sb;
-  if(!window.__supabaseLib){
+  if(!window.__sbLoaded){
     await new Promise((res,rej)=>{
       const s=document.createElement("script");
       s.src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js";
-      s.onload=res; s.onerror=rej; document.head.appendChild(s);
+      s.onload=()=>{window.__sbLoaded=true;res();};
+      s.onerror=rej;
+      document.head.appendChild(s);
     });
   }
-  _sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+  _sb=window.supabase.createClient(SUPABASE_URL,SUPABASE_KEY);
   return _sb;
 }
 
-// ─── DB helpers ───────────────────────────────────────────────────────────────
-// Map JS camelCase listing → DB snake_case columns
+// ─── DB mappers ───────────────────────────────────────────────────────────────
 function listingToRow(l){
   return{
     id:l.id, seller_id:l.sellerId, seller_name:l.sellerName,
@@ -914,7 +914,6 @@ function listingToRow(l){
     sold:l.sold||false, sold_at:l.soldAt||null, created_at:l.createdAt||Date.now(),
   };
 }
-// Map DB snake_case → JS camelCase
 function rowToListing(r){
   return{
     id:r.id, sellerId:r.seller_id, sellerName:r.seller_name,
@@ -927,22 +926,21 @@ function rowToListing(r){
     sold:r.sold, soldAt:r.sold_at, createdAt:r.created_at,
   };
 }
-function userToRow(u){
+// Profile row → app user object (merges auth email)
+function profileToUser(profile, authEmail=""){
   return{
-    id:u.id, name:u.name, email:u.email, phone:u.phone,
-    password:u.password, role:u.role, verified:u.verified||true,
-    ratings:u.ratings||[], car_prefs:u.carPrefs||[],
-  };
-}
-function rowToUser(r){
-  return{
-    id:r.id, name:r.name, email:r.email, phone:r.phone,
-    password:r.password, role:r.role, verified:r.verified,
-    ratings:r.ratings||[], carPrefs:r.car_prefs||[],
+    id:profile.id,
+    name:profile.name,
+    email:authEmail||profile.email||"",
+    phone:profile.phone||"",
+    role:profile.role,
+    verified:true,
+    ratings:profile.ratings||[],
+    carPrefs:profile.car_prefs||[],
   };
 }
 
-// ─── localStorage cache (instant UI, no flicker) ──────────────────────────────
+// ─── localStorage cache ───────────────────────────────────────────────────────
 function lsGet(key,fallback){
   try{const v=localStorage.getItem(key);return v?JSON.parse(v):fallback;}catch{return fallback;}
 }
@@ -952,28 +950,24 @@ function lsSet(key,val){
 
 // ─── App ──────────────────────────────────────────────────────────────────────
 export default function App(){
-  const [screen,setScreen]       = useState(()=>lsGet("sparez_currentUser",null)?"home":"splash");
-  const [authMode,setAuthMode]   = useState("login");
-  const [dbReady,setDbReady]     = useState(false);
-
-  // Seeded from localStorage cache instantly, then overwritten by Supabase
+  const [screen,setScreen]         = useState(()=>lsGet("sparez_currentUser",null)?"home":"splash");
+  const [authMode,setAuthMode]     = useState("login");
   const [currentUser,setCurrentUser] = useState(()=>lsGet("sparez_currentUser",null));
-  const [users,setUsers]         = useState(()=>lsGet("sparez_users",[]));
-  const [listings,setListings]   = useState(()=>lsGet("sparez_listings",[]));
-  const [chats,setChats]         = useState(()=>lsGet("sparez_chats",{}));
-  const [notifs,setNotifs]       = useState(()=>lsGet("sparez_notifs",[]));
-
+  const [users,setUsers]           = useState(()=>lsGet("sparez_users",[]));
+  const [listings,setListings]     = useState(()=>lsGet("sparez_listings",[]));
+  const [chats,setChats]           = useState(()=>lsGet("sparez_chats",{}));
+  const [notifs,setNotifs]         = useState(()=>lsGet("sparez_notifs",[]));
   const [activeListing,setActiveListing] = useState(null);
   const [activeChatKey,setActiveChatKey] = useState(null);
-  const [toast,setToast]         = useState(null);
-  const [filters,setFilters]     = useState(DEF_FILTERS);
+  const [toast,setToast]           = useState(null);
+  const [filters,setFilters]       = useState(DEF_FILTERS);
   const [showFilters,setShowFilters] = useState(false);
   const [ratingModal,setRatingModal] = useState(null);
-  const [prevScreen,setPrevScreen]   = useState("home");
-  const [viewCur,setViewCur]     = useState(()=>detectCurrency());
+  const [prevScreen,setPrevScreen] = useState("home");
+  const [viewCur,setViewCur]       = useState(()=>detectCurrency());
   const [showNotifs,setShowNotifs] = useState(false);
 
-  // Keep localStorage cache in sync
+  // Keep localStorage cache synced
   useEffect(()=>lsSet("sparez_currentUser",currentUser),[currentUser]);
   useEffect(()=>lsSet("sparez_users",users),[users]);
   useEffect(()=>lsSet("sparez_listings",listings),[listings]);
@@ -983,26 +977,58 @@ export default function App(){
   const prevChatsRef   = useRef({});
   const seenListingIds = useRef(new Set());
 
-  // ── Boot: load all data from Supabase + subscribe to realtime ──────────────
+  // ── Boot: Supabase Auth session + load data + realtime ─────────────────────
   useEffect(()=>{
     let subs=[];
     (async()=>{
-      const sb = await getSB();
+      const sb=await getSB();
 
-      // 1. Load all users
-      const {data:uRows}=await sb.from("users").select("*");
-      if(uRows){
-        const mapped=uRows.map(rowToUser);
-        setUsers(mapped);
-        // Refresh currentUser from DB (ratings may have updated)
-        const cu=lsGet("sparez_currentUser",null);
-        if(cu){
-          const fresh=mapped.find(u=>u.id===cu.id);
-          if(fresh)setCurrentUser(fresh);
+      // ── Restore session if user was already logged in ─────────────────────
+      const {data:{session}}=await sb.auth.getSession();
+      if(session){
+        const {data:profile}=await sb.from("profiles").select("*").eq("id",session.user.id).single();
+        if(profile){
+          const u=profileToUser(profile,session.user.email);
+          setCurrentUser(u);
+          setScreen("home");
         }
       }
 
-      // 2. Load all listings
+      // ── Listen for auth state changes (email confirmed, sign out etc) ─────
+      sb.auth.onAuthStateChange(async(event,session)=>{
+        if(event==="SIGNED_IN"&&session){
+          const {data:profile}=await sb.from("profiles").select("*").eq("id",session.user.id).single();
+          if(profile){
+            const u=profileToUser(profile,session.user.email);
+            setCurrentUser(u);
+            setUsers(us=>us.find(x=>x.id===u.id)?us.map(x=>x.id===u.id?u:x):[...us,u]);
+            setScreen("home");
+          }
+        }
+        if(event==="SIGNED_OUT"){
+          setCurrentUser(null);
+          lsSet("sparez_currentUser",null);
+          setScreen("splash");
+        }
+        if(event==="USER_UPDATED"&&session){
+          // email confirmed
+          const {data:profile}=await sb.from("profiles").select("*").eq("id",session.user.id).single();
+          if(profile){
+            const u=profileToUser(profile,session.user.email);
+            setCurrentUser(u);
+            setScreen("home");
+          }
+        }
+      });
+
+      // ── Load profiles ─────────────────────────────────────────────────────
+      const {data:profileRows}=await sb.from("profiles").select("*");
+      if(profileRows){
+        const mapped=profileRows.map(p=>profileToUser(p));
+        setUsers(mapped);
+      }
+
+      // ── Load listings ─────────────────────────────────────────────────────
       const {data:lRows}=await sb.from("listings").select("*").order("created_at",{ascending:false});
       if(lRows){
         const mapped=lRows.map(rowToListing);
@@ -1010,67 +1036,58 @@ export default function App(){
         mapped.forEach(l=>seenListingIds.current.add(l.id));
       }
 
-      // 3. Load all chats
+      // ── Load chats ────────────────────────────────────────────────────────
       const {data:cRows}=await sb.from("chats").select("*");
       if(cRows){
         const mapped={};
-        cRows.forEach(r=>{ mapped[r.chat_key]=r.messages||[]; });
+        cRows.forEach(r=>{mapped[r.chat_key]=r.messages||[];});
         setChats(mapped);
       }
 
-      setDbReady(true);
-
       // ── Realtime: listings ────────────────────────────────────────────────
-      const listingSub = sb.channel("listings_rt")
+      const listingSub=sb.channel("listings_rt")
         .on("postgres_changes",{event:"*",schema:"public",table:"listings"},payload=>{
           if(payload.eventType==="INSERT"||payload.eventType==="UPDATE"){
             const l=rowToListing(payload.new);
             setListings(ls=>{
               const exists=ls.find(x=>x.id===l.id);
-              return exists ? ls.map(x=>x.id===l.id?l:x) : [l,...ls];
+              return exists?ls.map(x=>x.id===l.id?l:x):[l,...ls];
             });
           }
-          if(payload.eventType==="DELETE"){
+          if(payload.eventType==="DELETE")
             setListings(ls=>ls.filter(x=>x.id!==payload.old.id));
-          }
-        })
-        .subscribe();
+        }).subscribe();
 
-      // ── Realtime: chats ────────────────────────────────────────────────────
-      const chatSub = sb.channel("chats_rt")
+      // ── Realtime: chats ───────────────────────────────────────────────────
+      const chatSub=sb.channel("chats_rt")
         .on("postgres_changes",{event:"*",schema:"public",table:"chats"},payload=>{
           if(payload.new){
             const key=payload.new.chat_key;
-            const msgs=payload.new.messages||[];
-            setChats(c=>({...c,[key]:msgs}));
+            setChats(c=>({...c,[key]:payload.new.messages||[]}));
           }
-        })
-        .subscribe();
+        }).subscribe();
 
-      // ── Realtime: users (ratings, carPrefs) ───────────────────────────────
-      const userSub = sb.channel("users_rt")
-        .on("postgres_changes",{event:"*",schema:"public",table:"users"},payload=>{
+      // ── Realtime: profiles ────────────────────────────────────────────────
+      const profileSub=sb.channel("profiles_rt")
+        .on("postgres_changes",{event:"*",schema:"public",table:"profiles"},payload=>{
           if(payload.new){
-            const u=rowToUser(payload.new);
+            const u=profileToUser(payload.new);
             setUsers(us=>us.map(x=>x.id===u.id?u:x));
-            // Update currentUser if it's the same person
             setCurrentUser(cu=>cu?.id===u.id?{...cu,...u}:cu);
           }
-        })
-        .subscribe();
+        }).subscribe();
 
-      subs=[listingSub,chatSub,userSub];
+      subs=[listingSub,chatSub,profileSub];
     })();
-    return()=>{ subs.forEach(s=>s.unsubscribe?.()??s.channel?.unsubscribe?.()); };
+    return()=>{subs.forEach(s=>s.unsubscribe?.());};
   },[]);
 
-  const unreadCount = notifs.filter(n=>!n.read).length;
-
+  const unreadCount=notifs.filter(n=>!n.read).length;
   const pushNotif=(type,title,body,action=null)=>{
     setNotifs(ns=>[{id:genId(),type,title,body,action,ts:Date.now(),read:false},...ns].slice(0,60));
   };
 
-  // Chat message notifications
+  // Chat notifications
   useEffect(()=>{
     if(!currentUser)return;
     const prev=prevChatsRef.current;
@@ -1083,8 +1100,8 @@ export default function App(){
         const parts=key.split("_");
         if(currentUser.id!==parts[0]&&currentUser.id!==parts[1])return;
         if(activeChatKey?.key===key)return;
-        pushNotif("message",`💬 ${m.senderName} sent you a message`,
-          `"${m.text.length>80?m.text.slice(0,80)+"…":m.text}"`,{screen:"chat",chatKey:key});
+        pushNotif("message",`\u{1F4AC} ${m.senderName} sent you a message`,
+          `"${m.text.length>80?m.text.slice(0,80)+"\u2026":m.text}"`,{screen:"chat",chatKey:key});
       });
     });
     prevChatsRef.current=chats;
@@ -1105,9 +1122,9 @@ export default function App(){
         const yearOk=p.year==="Any year"||l.year===p.year;
         return makeOk&&modelOk&&yearOk;
       });
-      if(matched) pushNotif("listing",
-        `🔍 New part for your ${matched.make}${matched.model!=="Any model"?" "+matched.model:""}`,
-        `${l.partName} · ${l.condition} · ${fmtPrice(l.price,l.currency||"USD")} · by ${l.sellerName}`,
+      if(matched)pushNotif("listing",
+        `\U0001F50D New part for your ${matched.make}${matched.model!=="Any model"?" "+matched.model:""}`,
+        `${l.partName} \u00B7 ${l.condition} \u00B7 ${fmtPrice(l.price,l.currency||"USD")} \u00B7 by ${l.sellerName}`,
         {screen:"listing",listingId:l.id});
     });
   },[listings,currentUser,users]);
@@ -1121,10 +1138,8 @@ export default function App(){
   };
 
   const markSold=async(id)=>{
-    // Optimistic UI
     setListings(ls=>ls.map(l=>l.id===id?{...l,sold:true,soldAt:Date.now()}:l));
-    notify("Marked as SOLD — listing will be removed shortly.","success");
-    // Persist to Supabase
+    notify("Marked as SOLD \u2014 listing will be removed shortly.","success");
     const sb=await getSB();
     await sb.from("listings").update({sold:true,sold_at:Date.now()}).eq("id",id);
     setTimeout(async()=>{
@@ -1147,13 +1162,20 @@ export default function App(){
     const seller=users.find(u=>u.id===sellerId);
     const existing=(seller?.ratings||[]).filter(r=>r.buyerId!==currentUser.id);
     const newRatings=[...existing,{buyerId:currentUser.id,buyerName:currentUser.name,stars,review,createdAt:Date.now()}];
-    // Optimistic
     setUsers(us=>us.map(u=>u.id===sellerId?{...u,ratings:newRatings}:u));
-    // Persist
-    await sb.from("users").update({ratings:newRatings}).eq("id",sellerId);
+    await sb.from("profiles").update({ratings:newRatings}).eq("id",sellerId);
     setRatingModal(null);notify("Rating submitted! Thank you.","success");
   };
 
+  const signOut=async()=>{
+    const sb=await getSB();
+    await sb.auth.signOut();
+    setCurrentUser(null);
+    setActiveListing(null);
+    setActiveChatKey(null);
+    lsSet("sparez_currentUser",null);
+    setScreen("splash");
+  };
 
   const activeFilterCount=Object.entries(filters).filter(([k,v])=>{
     if(k==="sortBy")return v!=="Newest";if(k==="category")return v!=="All";
@@ -1186,7 +1208,7 @@ export default function App(){
   const myListings=listings.filter(l=>l.sellerId===currentUser?.id);
   const myChats=Object.keys(chats).filter(k=>{const parts=k.split("_");return parts[0]===currentUser?.id||parts[1]===currentUser?.id;});
 
-  // Splash
+  // ── Splash screen ──────────────────────────────────────────────────────────
   if(screen==="splash") return(
     <div style={{minHeight:"100vh",background:"#fff",display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
       <div style={{display:"flex",flexDirection:"column",alignItems:"center",gap:16,maxWidth:400,width:"100%"}}>
@@ -1213,7 +1235,7 @@ export default function App(){
     </div>
   );
 
-  if(screen==="auth") return <AuthScreen authMode={authMode} setAuthMode={setAuthMode} users={users} setUsers={setUsers} setCurrentUser={setCurrentUser} setScreen={setScreen} notify={notify} TERMS={TERMS}/>;
+  if(screen==="auth") return <AuthScreen authMode={authMode} setAuthMode={setAuthMode} setCurrentUser={setCurrentUser} setUsers={setUsers} setScreen={setScreen} notify={notify} TERMS={TERMS}/>;
 
   return(
     <div style={{background:"#f5f5f5",minHeight:"100vh",maxWidth:430,margin:"0 auto",position:"relative",fontFamily:"'Segoe UI',system-ui,sans-serif"}}>
@@ -1233,8 +1255,7 @@ export default function App(){
             const parts=key.split("_");
             const listingId=parts[2];
             const listing=listings.find(l=>l.id===listingId)||{id:listingId,partName:"Part",sellerName:"Seller",sellerId:parts[1]};
-            setActiveChatKey({key,listing});
-            setScreen("chat");
+            setActiveChatKey({key,listing});setScreen("chat");
           } else if(action.screen==="listing"){
             const l=listings.find(x=>x.id===action.listingId);
             if(l){setActiveListing(l);setScreen("listing");}
@@ -1247,7 +1268,7 @@ export default function App(){
       {screen==="addlisting" &&<AddListingScreen currentUser={currentUser} setListings={setListings} notify={notify} setScreen={setScreen}/>}
       {screen==="chat"       &&activeChatKey&&<ChatScreen chatKey={activeChatKey} currentUser={currentUser} chats={chats} setChats={setChats} onBack={()=>setScreen(prevScreen||"home")} openRating={()=>setRatingModal({sellerId:activeChatKey.listing.sellerId,sellerName:activeChatKey.listing.sellerName})} users={users}/>}
       {screen==="mylistings" &&<MyListingsScreen listings={myListings} openListing={openListing} setScreen={setScreen} markSold={markSold} deleteListing={deleteListing}/>}
-      {screen==="profile"    &&<ProfileScreen currentUser={currentUser} users={users} setUsers={setUsers} setCurrentUser={setCurrentUser} setScreen={setScreen} viewCur={viewCur} setViewCur={setViewCur} setActiveListing={setActiveListing} setActiveChatKey={setActiveChatKey}/>}
+      {screen==="profile"    &&<ProfileScreen currentUser={currentUser} users={users} setUsers={setUsers} setCurrentUser={setCurrentUser} setScreen={setScreen} viewCur={viewCur} setViewCur={setViewCur} setActiveListing={setActiveListing} setActiveChatKey={setActiveChatKey} signOut={signOut}/>}
       {screen==="inbox"      &&<InboxScreen chats={chats} chatKeys={myChats} currentUser={currentUser} setActiveChatKey={setActiveChatKey} setScreen={setScreen} listings={listings}/>}
 
       <nav style={{position:"fixed",bottom:0,left:"50%",transform:"translateX(-50%)",width:"100%",maxWidth:430,background:"#fff",borderTop:"1px solid #f0f0f0",display:"flex",justifyContent:"space-around",alignItems:"center",padding:"8px 0 20px",zIndex:20,boxShadow:"0 -2px 12px rgba(0,0,0,0.06)"}}>
@@ -1261,8 +1282,7 @@ export default function App(){
             <span style={{fontSize:10,color:screen===item.s?"#e8172c":"#bbb",fontWeight:screen===item.s?700:400}}>{item.label}</span>
           </button>
         ))}
-        {/* Bell always visible */}
-        <button style={{display:"flex",flexDirection:"column",alignItems:"center",gap:3,background:"transparent",border:"none",cursor:"pointer",padding:"4px 10px",position:"relative"}} onClick={()=>setShowNotifs(true)}>
+        <button style={{display:"flex",flexDirection:"column",alignItems:"center",gap:3,background:"transparent",border:"none",cursor:"pointer",padding:"4px 10px"}} onClick={()=>setShowNotifs(true)}>
           <div style={{position:"relative"}}>
             <svg width="22" height="22" viewBox="0 0 24 24" fill="none" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" stroke={showNotifs?"#e8172c":unreadCount>0?"#e8172c":"#bbb"}>
               <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/>
@@ -1278,66 +1298,82 @@ export default function App(){
 }
 
 // ─── Auth ─────────────────────────────────────────────────────────────────────
-function AuthScreen({authMode,setAuthMode,users,setUsers,setCurrentUser,setScreen,notify,TERMS}){
+function AuthScreen({authMode,setAuthMode,setCurrentUser,setUsers,setScreen,notify,TERMS}){
   const [f,sf]=useState({name:"",email:"",phone:"",password:"",role:"buyer",termsAccepted:false});
   const [showTerms,setShowTerms]=useState(false);
-  const [emailStep,setEmailStep]=useState(false);
   const [loading,setLoading]=useState(false);
+  const [verifyStep,setVerifyStep]=useState(false);
   const set=(k,v)=>sf(p=>({...p,[k]:v}));
 
   const submit=async()=>{
     if(loading)return;
-    if(authMode==="login"){
-      setLoading(true);
-      try{
-        const sb=await getSB();
-        const {data,error}=await sb.from("users").select("*").eq("email",f.email).single();
-        if(error||!data||data.password!==f.password){notify("Invalid email or password","error");return;}
-        const u=rowToUser(data);
-        setUsers(us=>us.find(x=>x.id===u.id)?us.map(x=>x.id===u.id?u:x):[...us,u]);
-        setCurrentUser(u);setScreen("home");notify(`Welcome back, ${u.name}!`,"success");
-      }catch{notify("Invalid email or password","error");}
-      finally{setLoading(false);}
-    }else{
-      if(!f.name||!f.email||!f.phone||!f.password)return notify("All fields required","error");
-      if(!f.termsAccepted)return notify("Please accept the Terms & Conditions","error");
-      if(!f.phone.match(/^\+?[\d\s\-]{7,}/))return notify("Enter a valid phone number","error");
-      setLoading(true);
-      try{
-        const sb=await getSB();
-        const {data:ex}=await sb.from("users").select("id").eq("email",f.email).maybeSingle();
-        if(ex){notify("Email already registered","error");return;}
-      }catch{}finally{setLoading(false);}
-      setEmailStep(true);
-    }
-  };
-
-  const confirmRegister=async()=>{
     setLoading(true);
     try{
       const sb=await getSB();
-      const nu={id:genId(),name:f.name,email:f.email,phone:f.phone,
-        password:f.password,role:f.role,verified:true,ratings:[],carPrefs:[]};
-      const {error}=await sb.from("users").insert(userToRow(nu));
-      if(error)throw error;
-      setUsers(us=>[...us,nu]);
-      setCurrentUser(nu);setScreen("home");notify("Account created! Welcome 🎉","success");
-    }catch(e){notify("Registration failed — try again","error");console.error(e);}
+      if(authMode==="login"){
+        const {data,error}=await sb.auth.signInWithPassword({email:f.email,password:f.password});
+        if(error){
+          if(error.message.includes("Email not confirmed"))
+            notify("Please verify your email first \u2014 check your inbox","error");
+          else
+            notify("Invalid email or password","error");
+          return;
+        }
+        // Profile loaded by onAuthStateChange in App
+      }else{
+        if(!f.name||!f.email||!f.phone||!f.password)return notify("All fields required","error");
+        if(!f.termsAccepted)return notify("Please accept the Terms & Conditions","error");
+        if(!f.phone.match(/^\+?[\d\s\-]{7,}/))return notify("Enter a valid phone number","error");
+        // Sign up with Supabase Auth
+        const {data,error}=await sb.auth.signUp({
+          email:f.email,
+          password:f.password,
+          options:{
+            emailRedirectTo:window.location.origin,
+            data:{name:f.name,role:f.role,phone:f.phone},
+          }
+        });
+        if(error){notify(error.message,"error");return;}
+        // Create profile row immediately
+        if(data.user){
+          await sb.from("profiles").insert({
+            id:data.user.id,
+            name:f.name,
+            phone:f.phone,
+            role:f.role,
+            ratings:[],
+            car_prefs:[],
+          });
+        }
+        setVerifyStep(true);
+      }
+    }catch(e){notify("Something went wrong \u2014 try again","error");console.error(e);}
     finally{setLoading(false);}
   };
 
-  if(emailStep) return(
+  if(verifyStep) return(
     <div style={{minHeight:"100vh",background:"#fff",display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
       <div style={{display:"flex",flexDirection:"column",alignItems:"center",gap:16,maxWidth:380,width:"100%",textAlign:"center"}}>
-        <div style={{width:64,height:64,borderRadius:"50%",background:"#fff5f5",border:"2px solid #fecaca",display:"flex",alignItems:"center",justifyContent:"center"}}>
-          <Icon name="mail" size={30} color="#e8172c"/>
+        <div style={{width:72,height:72,borderRadius:"50%",background:"linear-gradient(135deg,#fff5f5,#fecaca)",border:"2px solid #fca5a5",display:"flex",alignItems:"center",justifyContent:"center"}}>
+          <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="#e8172c" strokeWidth="2" strokeLinecap="round"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg>
         </div>
-        <h2 style={{color:"#111",margin:0}}>Almost there!</h2>
-        <p style={{color:"#666",marginBottom:8}}>Ready to create your account for <strong style={{color:"#e8172c"}}>{f.email}</strong></p>
-        <button style={{...C.btnRed,opacity:loading?0.7:1}} onClick={confirmRegister} disabled={loading}>
-          {loading?"Creating account...":"✓ Create My Account"}
+        <h2 style={{color:"#111",margin:0,fontSize:22}}>Check your email!</h2>
+        <p style={{color:"#666",margin:0,lineHeight:1.7}}>
+          We sent a verification link to<br/>
+          <strong style={{color:"#e8172c"}}>{f.email}</strong>
+        </p>
+        <div style={{background:"#f0fdf4",borderRadius:12,padding:"12px 16px",border:"1px solid #bbf7d0",width:"100%",boxSizing:"border-box"}}>
+          <p style={{color:"#16a34a",fontSize:13,fontWeight:700,margin:"0 0 4px"}}>\u2705 What to do next:</p>
+          <p style={{color:"#4ade80",fontSize:12,margin:0,lineHeight:1.6}}>
+            1. Open your email inbox<br/>
+            2. Click the <strong>"Confirm your email"</strong> link<br/>
+            3. Come back here and sign in
+          </p>
+        </div>
+        <p style={{color:"#bbb",fontSize:12,margin:0}}>Didn't receive it? Check your spam folder.</p>
+        <button style={C.btnGhost} onClick={()=>{setVerifyStep(false);setAuthMode("login");}}>
+          \u2190 Back to Sign In
         </button>
-        <button style={C.btnGhost} onClick={()=>setEmailStep(false)}>← Go Back</button>
       </div>
     </div>
   );
@@ -1358,13 +1394,13 @@ function AuthScreen({authMode,setAuthMode,users,setUsers,setCurrentUser,setScree
           <input style={C.input} placeholder="Full Name / Business Name" value={f.name} onChange={e=>set("name",e.target.value)}/>
           <div style={{display:"flex",gap:8}}>
             {["buyer","seller"].map(r=>(
-              <button key={r} style={{flex:1,padding:"10px",border:`1.5px solid ${f.role===r?"#e8172c":"#e0e0e0"}`,borderRadius:8,background:f.role===r?"#fff5f5":"#fff",color:f.role===r?"#e8172c":"#666",cursor:"pointer",fontWeight:600,fontSize:13}} onClick={()=>set("role",r)}>{r==="buyer"?"🛒 Buyer":"🏪 Seller"}</button>
+              <button key={r} style={{flex:1,padding:"10px",border:`1.5px solid ${f.role===r?"#e8172c":"#e0e0e0"}`,borderRadius:8,background:f.role===r?"#fff5f5":"#fff",color:f.role===r?"#e8172c":"#666",cursor:"pointer",fontWeight:600,fontSize:13}} onClick={()=>set("role",r)}>{r==="buyer"?"\U0001F6D2 Buyer":"\U0001F3EA Seller"}</button>
             ))}
           </div>
-          <input style={C.input} placeholder="Phone Number (required)" value={f.phone} onChange={e=>set("phone",e.target.value)} type="tel"/>
+          <input style={C.input} placeholder="Phone Number" value={f.phone} onChange={e=>set("phone",e.target.value)} type="tel"/>
         </>}
-        <input style={C.input} placeholder="Email Address" value={f.email} onChange={e=>set("email",e.target.value)} type="email"/>
-        <input style={C.input} placeholder="Password" value={f.password} onChange={e=>set("password",e.target.value)} type="password"/>
+        <input style={C.input} placeholder="Email Address" value={f.email} onChange={e=>set("email",e.target.value)} type="email" autoComplete="email"/>
+        <input style={C.input} placeholder="Password" value={f.password} onChange={e=>set("password",e.target.value)} type="password" autoComplete={authMode==="login"?"current-password":"new-password"}/>
         {authMode==="register"&&(
           <div style={{display:"flex",alignItems:"flex-start",gap:10}}>
             <div style={{width:20,height:20,minWidth:20,border:`2px solid ${f.termsAccepted?"#e8172c":"#ddd"}`,borderRadius:5,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",background:f.termsAccepted?"#e8172c":"#fff"}} onClick={()=>set("termsAccepted",!f.termsAccepted)}>
@@ -1373,13 +1409,15 @@ function AuthScreen({authMode,setAuthMode,users,setUsers,setCurrentUser,setScree
             <p style={{color:"#666",fontSize:13,flex:1,margin:0}}>I agree to the <span style={{color:"#e8172c",cursor:"pointer",fontWeight:600}} onClick={()=>setShowTerms(true)}>Terms & Conditions</span></p>
           </div>
         )}
-        <button style={C.btnRed} onClick={submit}>{authMode==="login"?"Sign In":"Create Account"}</button>
+        <button style={{...C.btnRed,opacity:loading?0.7:1,cursor:loading?"not-allowed":"pointer"}} onClick={submit} disabled={loading}>
+          {loading?(authMode==="login"?"Signing in...":"Creating account..."):(authMode==="login"?"Sign In":"Create Account")}
+        </button>
         {showTerms&&(
           <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:300,padding:20}}>
             <div style={{background:"#fff",borderRadius:16,padding:24,width:"100%",maxWidth:400,boxShadow:"0 20px 60px rgba(0,0,0,0.2)"}}>
               <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
                 <h3 style={{color:"#111",margin:0,fontSize:16}}>Terms & Conditions</h3>
-                <button style={{background:"transparent",border:"none",cursor:"pointer",color:"#999",fontSize:20,padding:0}} onClick={()=>setShowTerms(false)}>×</button>
+                <button style={{background:"transparent",border:"none",cursor:"pointer",color:"#999",fontSize:20,padding:0}} onClick={()=>setShowTerms(false)}>\u00D7</button>
               </div>
               <pre style={{color:"#444",fontSize:12,whiteSpace:"pre-wrap",overflowY:"auto",maxHeight:300,lineHeight:1.7,margin:0}}>{TERMS}</pre>
               <button style={{...C.btnRed,marginTop:16}} onClick={()=>{set("termsAccepted",true);setShowTerms(false);}}>I Accept</button>
@@ -1390,6 +1428,7 @@ function AuthScreen({authMode,setAuthMode,users,setUsers,setCurrentUser,setScree
     </div>
   );
 }
+
 
 // ─── Home ─────────────────────────────────────────────────────────────────────
 function HomeScreen({listings,filters,setFilters,showFilters,setShowFilters,activeFilterCount,openListing,viewCur,setViewCur}){
@@ -2868,7 +2907,7 @@ function InboxScreen({chats,chatKeys,currentUser,setActiveChatKey,setScreen,list
 }
 
 // ─── Profile ──────────────────────────────────────────────────────────────────
-function ProfileScreen({currentUser,users,setUsers,setCurrentUser,setScreen,viewCur,setViewCur,setActiveListing,setActiveChatKey}){
+function ProfileScreen({currentUser,users,setUsers,setCurrentUser,setScreen,viewCur,setViewCur,setActiveListing,setActiveChatKey,signOut}){
   const me=users.find(u=>u.id===currentUser.id)||currentUser;
   const rating=avgRating(me.ratings||[]);
   return(
@@ -2937,7 +2976,7 @@ function ProfileScreen({currentUser,users,setUsers,setCurrentUser,setScreen,view
       </div>
 
       <div style={{padding:"0 16px"}}>
-        <button style={C.btnGhost} onClick={()=>{setCurrentUser(null);setActiveListing(null);setActiveChatKey(null);lsSet("sparez_currentUser",null);setScreen("splash");}}>Sign Out</button>
+        <button style={C.btnGhost} onClick={signOut}>Sign Out</button>
       </div>
       <div style={{height:80}}/>
     </div>
