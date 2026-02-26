@@ -2009,19 +2009,26 @@ function AIPartScanner({ onResult, onClose }) {
   useEffect(() => () => stopCam(), []);
 
   const startCamera = async () => {
-    setPhase("camera"); setCameraReady(false);
+    setCameraReady(false);
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
         video: { facingMode: "environment", width: { ideal: 1280 }, height: { ideal: 720 } }
       });
       streamRef.current = stream;
-      if (videoRef.current) {
-        videoRef.current.srcObject = stream;
-        await videoRef.current.play();
-        setCameraReady(true);
-      }
+      setPhase("camera"); // mount video element AFTER stream is ready
     } catch(e) { stopCam(); setPhase("camera_err"); }
   };
+
+  // Once camera phase mounts the <video> element, attach the stream
+  useEffect(() => {
+    if (phase !== "camera" || !streamRef.current) return;
+    const video = videoRef.current;
+    if (!video) return;
+    video.srcObject = streamRef.current;
+    video.play()
+      .then(() => setCameraReady(true))
+      .catch(() => { stopCam(); setPhase("camera_err"); });
+  }, [phase]);
 
   const snapPhoto = () => {
     const video = videoRef.current; if (!video) return;
@@ -2547,7 +2554,7 @@ function AddListingScreen({currentUser,setListings,notify,setScreen}){
               <div style={{fontSize:36,marginBottom:8}}>📷</div>
               <p style={{color:"#888",fontSize:13,fontWeight:600,margin:"0 0 4px"}}>No photos yet</p>
               <p style={{color:"#bbb",fontSize:12,margin:"0 0 16px"}}>Add up to 10 photos of the part</p>
-              <button style={{display:"flex",alignItems:"center",gap:8,background:"#e8172c",border:"none",borderRadius:10,padding:"11px 24px",color:"#fff",fontWeight:700,fontSize:14,cursor:"pointer"}}
+              <button style={{display:"flex",alignItems:"center",gap:8,background:"#e8172c",border:"none",borderRadius:10,padding:"11px 24px",color:"#fff",fontWeight:700,fontSize:14,cursor:"pointer",margin:"0 auto"}}
                 onClick={()=>setShowPhotoMenu(true)}>
                 📷 Add Photos
               </button>
