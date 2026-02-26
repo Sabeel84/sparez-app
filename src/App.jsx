@@ -811,14 +811,18 @@ function CarPrefsManager({currentUser,users,setUsers}){
   const [year,setYear]=useState("");
   const models=make&&CAR_MODELS[make]?[...CAR_MODELS[make],"Any model"]:[];
 
-  const addPref=()=>{
+  const addPref=async()=>{
     if(!make)return;
     const pref={id:genId(),make,model:model||"Any model",year:year||"Any year"};
-    setUsers(us=>us.map(u=>u.id===currentUser.id?{...u,carPrefs:[...(u.carPrefs||[]),pref]}:u));
+    const newPrefs=[...(prefs),pref];
+    setUsers(us=>us.map(u=>u.id===currentUser.id?{...u,carPrefs:newPrefs}:u));
     setMake("");setModel("");setYear("");
+    try{const sb=await getSB();await sb.from("users").update({car_prefs:newPrefs}).eq("id",currentUser.id);}catch(e){console.error(e);}
   };
-  const removePref=(id)=>{
-    setUsers(us=>us.map(u=>u.id===currentUser.id?{...u,carPrefs:(u.carPrefs||[]).filter(p=>p.id!==id)}:u));
+  const removePref=async(id)=>{
+    const newPrefs=prefs.filter(p=>p.id!==id);
+    setUsers(us=>us.map(u=>u.id===currentUser.id?{...u,carPrefs:newPrefs}:u));
+    try{const sb=await getSB();await sb.from("users").update({car_prefs:newPrefs}).eq("id",currentUser.id);}catch(e){console.error(e);}
   };
 
   return(
@@ -877,14 +881,88 @@ function CarPrefsManager({currentUser,users,setUsers}){
   );
 }
 
+// ─── Supabase Client ──────────────────────────────────────────────────────────
+const SUPABASE_URL  = import.meta.env.VITE_SUPABASE_URL;
+const SUPABASE_KEY  = import.meta.env.VITE_SUPABASE_ANON_KEY;
+
+// Lazy-load Supabase from CDN (no npm install needed)
+let _sb = null;
+async function getSB(){
+  if(_sb) return _sb;
+  if(!window.__supabaseLib){
+    await new Promise((res,rej)=>{
+      const s=document.createElement("script");
+      s.src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js";
+      s.onload=res; s.onerror=rej; document.head.appendChild(s);
+    });
+  }
+  _sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+  return _sb;
+}
+
+// ─── DB helpers ───────────────────────────────────────────────────────────────
+// Map JS camelCase listing → DB snake_case columns
+function listingToRow(l){
+  return{
+    id:l.id, seller_id:l.sellerId, seller_name:l.sellerName,
+    seller_phone:l.sellerPhone, seller_email:l.sellerEmail,
+    seller_location:l.sellerLocation, make:l.make, model:l.model,
+    year:l.year, vin:l.vin||null, part_name:l.partName,
+    part_number:l.partNumber||null, category:l.category,
+    condition:l.condition, price:l.price, currency:l.currency||"USD",
+    description:l.description, photos:l.photos,
+    sold:l.sold||false, sold_at:l.soldAt||null, created_at:l.createdAt||Date.now(),
+  };
+}
+// Map DB snake_case → JS camelCase
+function rowToListing(r){
+  return{
+    id:r.id, sellerId:r.seller_id, sellerName:r.seller_name,
+    sellerPhone:r.seller_phone, sellerEmail:r.seller_email,
+    sellerLocation:r.seller_location, make:r.make, model:r.model,
+    year:r.year, vin:r.vin, partName:r.part_name,
+    partNumber:r.part_number, category:r.category,
+    condition:r.condition, price:r.price, currency:r.currency,
+    description:r.description, photos:r.photos||[],
+    sold:r.sold, soldAt:r.sold_at, createdAt:r.created_at,
+  };
+}
+function userToRow(u){
+  return{
+    id:u.id, name:u.name, email:u.email, phone:u.phone,
+    password:u.password, role:u.role, verified:u.verified||true,
+    ratings:u.ratings||[], car_prefs:u.carPrefs||[],
+  };
+}
+function rowToUser(r){
+  return{
+    id:r.id, name:r.name, email:r.email, phone:r.phone,
+    password:r.password, role:r.role, verified:r.verified,
+    ratings:r.ratings||[], carPrefs:r.car_prefs||[],
+  };
+}
+
+// ─── localStorage cache (instant UI, no flicker) ──────────────────────────────
+function lsGet(key,fallback){
+  try{const v=localStorage.getItem(key);return v?JSON.parse(v):fallback;}catch{return fallback;}
+}
+function lsSet(key,val){
+  try{localStorage.setItem(key,JSON.stringify(val));}catch(e){console.warn("ls full",e);}
+}
+
 // ─── App ──────────────────────────────────────────────────────────────────────
 export default function App(){
-  const [screen,setScreen]       = useState("splash");
+  const [screen,setScreen]       = useState(()=>lsGet("sparez_currentUser",null)?"home":"splash");
   const [authMode,setAuthMode]   = useState("login");
-  const [currentUser,setCurrentUser] = useState(null);
-  const [users,setUsers]         = useState(INIT_USERS);
-  const [listings,setListings]   = useState(INIT_LISTINGS);
-  const [chats,setChats]         = useState({});
+  const [dbReady,setDbReady]     = useState(false);
+
+  // Seeded from localStorage cache instantly, then overwritten by Supabase
+  const [currentUser,setCurrentUser] = useState(()=>lsGet("sparez_currentUser",null));
+  const [users,setUsers]         = useState(()=>lsGet("sparez_users",[]));
+  const [listings,setListings]   = useState(()=>lsGet("sparez_listings",[]));
+  const [chats,setChats]         = useState(()=>lsGet("sparez_chats",{}));
+  const [notifs,setNotifs]       = useState(()=>lsGet("sparez_notifs",[]));
+
   const [activeListing,setActiveListing] = useState(null);
   const [activeChatKey,setActiveChatKey] = useState(null);
   const [toast,setToast]         = useState(null);
@@ -893,18 +971,106 @@ export default function App(){
   const [ratingModal,setRatingModal] = useState(null);
   const [prevScreen,setPrevScreen]   = useState("home");
   const [viewCur,setViewCur]     = useState(()=>detectCurrency());
-  const [notifs,setNotifs]       = useState([]);
   const [showNotifs,setShowNotifs] = useState(false);
-  const prevChatsRef             = useRef({});
-  const seenListingIds           = useRef(new Set(INIT_LISTINGS.map(l=>l.id)));
+
+  // Keep localStorage cache in sync
+  useEffect(()=>lsSet("sparez_currentUser",currentUser),[currentUser]);
+  useEffect(()=>lsSet("sparez_users",users),[users]);
+  useEffect(()=>lsSet("sparez_listings",listings),[listings]);
+  useEffect(()=>lsSet("sparez_chats",chats),[chats]);
+  useEffect(()=>lsSet("sparez_notifs",notifs),[notifs]);
+
+  const prevChatsRef   = useRef({});
+  const seenListingIds = useRef(new Set());
+
+  // ── Boot: load all data from Supabase + subscribe to realtime ──────────────
+  useEffect(()=>{
+    let subs=[];
+    (async()=>{
+      const sb = await getSB();
+
+      // 1. Load all users
+      const {data:uRows}=await sb.from("users").select("*");
+      if(uRows){
+        const mapped=uRows.map(rowToUser);
+        setUsers(mapped);
+        // Refresh currentUser from DB (ratings may have updated)
+        const cu=lsGet("sparez_currentUser",null);
+        if(cu){
+          const fresh=mapped.find(u=>u.id===cu.id);
+          if(fresh)setCurrentUser(fresh);
+        }
+      }
+
+      // 2. Load all listings
+      const {data:lRows}=await sb.from("listings").select("*").order("created_at",{ascending:false});
+      if(lRows){
+        const mapped=lRows.map(rowToListing);
+        setListings(mapped);
+        mapped.forEach(l=>seenListingIds.current.add(l.id));
+      }
+
+      // 3. Load all chats
+      const {data:cRows}=await sb.from("chats").select("*");
+      if(cRows){
+        const mapped={};
+        cRows.forEach(r=>{ mapped[r.chat_key]=r.messages||[]; });
+        setChats(mapped);
+      }
+
+      setDbReady(true);
+
+      // ── Realtime: listings ────────────────────────────────────────────────
+      const listingSub = sb.channel("listings_rt")
+        .on("postgres_changes",{event:"*",schema:"public",table:"listings"},payload=>{
+          if(payload.eventType==="INSERT"||payload.eventType==="UPDATE"){
+            const l=rowToListing(payload.new);
+            setListings(ls=>{
+              const exists=ls.find(x=>x.id===l.id);
+              return exists ? ls.map(x=>x.id===l.id?l:x) : [l,...ls];
+            });
+          }
+          if(payload.eventType==="DELETE"){
+            setListings(ls=>ls.filter(x=>x.id!==payload.old.id));
+          }
+        })
+        .subscribe();
+
+      // ── Realtime: chats ────────────────────────────────────────────────────
+      const chatSub = sb.channel("chats_rt")
+        .on("postgres_changes",{event:"*",schema:"public",table:"chats"},payload=>{
+          if(payload.new){
+            const key=payload.new.chat_key;
+            const msgs=payload.new.messages||[];
+            setChats(c=>({...c,[key]:msgs}));
+          }
+        })
+        .subscribe();
+
+      // ── Realtime: users (ratings, carPrefs) ───────────────────────────────
+      const userSub = sb.channel("users_rt")
+        .on("postgres_changes",{event:"*",schema:"public",table:"users"},payload=>{
+          if(payload.new){
+            const u=rowToUser(payload.new);
+            setUsers(us=>us.map(x=>x.id===u.id?u:x));
+            // Update currentUser if it's the same person
+            setCurrentUser(cu=>cu?.id===u.id?{...cu,...u}:cu);
+          }
+        })
+        .subscribe();
+
+      subs=[listingSub,chatSub,userSub];
+    })();
+    return()=>{ subs.forEach(s=>s.unsubscribe?.()??s.channel?.unsubscribe?.()); };
+  },[]);
 
   const unreadCount = notifs.filter(n=>!n.read).length;
 
-  const pushNotif = (type,title,body,action=null) => {
+  const pushNotif=(type,title,body,action=null)=>{
     setNotifs(ns=>[{id:genId(),type,title,body,action,ts:Date.now(),read:false},...ns].slice(0,60));
   };
 
-  // ── Detect new incoming chat messages ──────────────────────────────────────
+  // Chat message notifications
   useEffect(()=>{
     if(!currentUser)return;
     const prev=prevChatsRef.current;
@@ -912,26 +1078,19 @@ export default function App(){
       const msgs=chats[key]||[];
       const prevLen=(prev[key]||[]).length;
       if(msgs.length<=prevLen)return;
-      const newMsgs=msgs.slice(prevLen);
-      newMsgs.forEach(m=>{
-        if(m.senderId===currentUser.id)return; // don't notify for own messages
+      msgs.slice(prevLen).forEach(m=>{
+        if(m.senderId===currentUser.id)return;
         const parts=key.split("_");
-        const isRecipient=currentUser.id===parts[0]||currentUser.id===parts[1];
-        if(!isRecipient)return;
-        const activeChatOpen=activeChatKey?.key===key;
-        if(activeChatOpen)return; // already reading this chat
-        pushNotif(
-          "message",
-          `💬 ${m.senderName} sent you a message`,
-          `"${m.text.length>80?m.text.slice(0,80)+"…":m.text}"`,
-          {screen:"chat",chatKey:key}
-        );
+        if(currentUser.id!==parts[0]&&currentUser.id!==parts[1])return;
+        if(activeChatKey?.key===key)return;
+        pushNotif("message",`💬 ${m.senderName} sent you a message`,
+          `"${m.text.length>80?m.text.slice(0,80)+"…":m.text}"`,{screen:"chat",chatKey:key});
       });
     });
     prevChatsRef.current=chats;
   },[chats,currentUser]);
 
-  // ── Detect new listings matching buyer's car prefs ─────────────────────────
+  // New listing match notifications
   useEffect(()=>{
     if(!currentUser||currentUser.role!=="buyer")return;
     const me=users.find(u=>u.id===currentUser.id);
@@ -939,22 +1098,17 @@ export default function App(){
     listings.forEach(l=>{
       if(seenListingIds.current.has(l.id))return;
       seenListingIds.current.add(l.id);
-      if(l.sold||l.sellerId===currentUser.id)return;
-      if(!prefs.length)return;
+      if(l.sold||l.sellerId===currentUser.id||!prefs.length)return;
       const matched=prefs.find(p=>{
         const makeOk=l.make.toLowerCase()===p.make.toLowerCase();
         const modelOk=p.model==="Any model"||l.model.toLowerCase().includes(p.model.toLowerCase());
         const yearOk=p.year==="Any year"||l.year===p.year;
         return makeOk&&modelOk&&yearOk;
       });
-      if(matched){
-        pushNotif(
-          "listing",
-          `🔍 New part for your ${matched.make}${matched.model!=="Any model"?" "+matched.model:""}`,
-          `${l.partName} · ${l.condition} condition · ${fmtPrice(l.price,l.currency||"USD")} · by ${l.sellerName}`,
-          {screen:"listing",listingId:l.id}
-        );
-      }
+      if(matched) pushNotif("listing",
+        `🔍 New part for your ${matched.make}${matched.model!=="Any model"?" "+matched.model:""}`,
+        `${l.partName} · ${l.condition} · ${fmtPrice(l.price,l.currency||"USD")} · by ${l.sellerName}`,
+        {screen:"listing",listingId:l.id});
     });
   },[listings,currentUser,users]);
 
@@ -965,24 +1119,41 @@ export default function App(){
     const key=`${buyerId}_${listing.sellerId}_${listing.id}`;
     setPrevScreen(screen);setActiveChatKey({key,listing});setScreen("chat");
   };
-  const markSold=(id)=>{
+
+  const markSold=async(id)=>{
+    // Optimistic UI
     setListings(ls=>ls.map(l=>l.id===id?{...l,sold:true,soldAt:Date.now()}:l));
     notify("Marked as SOLD — listing will be removed shortly.","success");
-    setTimeout(()=>{setListings(ls=>ls.filter(l=>l.id!==id));if(activeListing?.id===id){setActiveListing(null);setScreen("mylistings");}},5000);
+    // Persist to Supabase
+    const sb=await getSB();
+    await sb.from("listings").update({sold:true,sold_at:Date.now()}).eq("id",id);
+    setTimeout(async()=>{
+      setListings(ls=>ls.filter(l=>l.id!==id));
+      await sb.from("listings").delete().eq("id",id);
+      if(activeListing?.id===id){setActiveListing(null);setScreen("mylistings");}
+    },5000);
   };
-  const deleteListing=(id)=>{
+
+  const deleteListing=async(id)=>{
     setListings(ls=>ls.filter(l=>l.id!==id));
     notify("Listing deleted.","info");
+    const sb=await getSB();
+    await sb.from("listings").delete().eq("id",id);
     if(activeListing?.id===id){setActiveListing(null);setScreen("mylistings");}
   };
-  const submitRating=(sellerId,stars,review)=>{
-    setUsers(us=>us.map(u=>{
-      if(u.id!==sellerId)return u;
-      const existing=(u.ratings||[]).filter(r=>r.buyerId!==currentUser.id);
-      return{...u,ratings:[...existing,{buyerId:currentUser.id,buyerName:currentUser.name,stars,review,createdAt:Date.now()}]};
-    }));
+
+  const submitRating=async(sellerId,stars,review)=>{
+    const sb=await getSB();
+    const seller=users.find(u=>u.id===sellerId);
+    const existing=(seller?.ratings||[]).filter(r=>r.buyerId!==currentUser.id);
+    const newRatings=[...existing,{buyerId:currentUser.id,buyerName:currentUser.name,stars,review,createdAt:Date.now()}];
+    // Optimistic
+    setUsers(us=>us.map(u=>u.id===sellerId?{...u,ratings:newRatings}:u));
+    // Persist
+    await sb.from("users").update({ratings:newRatings}).eq("id",sellerId);
     setRatingModal(null);notify("Rating submitted! Thank you.","success");
   };
+
 
   const activeFilterCount=Object.entries(filters).filter(([k,v])=>{
     if(k==="sortBy")return v!=="Newest";if(k==="category")return v!=="All";
@@ -1111,20 +1282,48 @@ function AuthScreen({authMode,setAuthMode,users,setUsers,setCurrentUser,setScree
   const [f,sf]=useState({name:"",email:"",phone:"",password:"",role:"buyer",termsAccepted:false});
   const [showTerms,setShowTerms]=useState(false);
   const [emailStep,setEmailStep]=useState(false);
+  const [loading,setLoading]=useState(false);
   const set=(k,v)=>sf(p=>({...p,[k]:v}));
 
-  const submit=()=>{
+  const submit=async()=>{
+    if(loading)return;
     if(authMode==="login"){
-      const u=users.find(u=>u.email===f.email&&u.password===f.password);
-      if(!u)return notify("Invalid email or password","error");
-      setCurrentUser(u);setScreen("home");notify(`Welcome back, ${u.name}!`,"success");
+      setLoading(true);
+      try{
+        const sb=await getSB();
+        const {data,error}=await sb.from("users").select("*").eq("email",f.email).single();
+        if(error||!data||data.password!==f.password){notify("Invalid email or password","error");return;}
+        const u=rowToUser(data);
+        setUsers(us=>us.find(x=>x.id===u.id)?us.map(x=>x.id===u.id?u:x):[...us,u]);
+        setCurrentUser(u);setScreen("home");notify(`Welcome back, ${u.name}!`,"success");
+      }catch{notify("Invalid email or password","error");}
+      finally{setLoading(false);}
     }else{
       if(!f.name||!f.email||!f.phone||!f.password)return notify("All fields required","error");
       if(!f.termsAccepted)return notify("Please accept the Terms & Conditions","error");
-      if(users.find(u=>u.email===f.email))return notify("Email already registered","error");
       if(!f.phone.match(/^\+?[\d\s\-]{7,}/))return notify("Enter a valid phone number","error");
+      setLoading(true);
+      try{
+        const sb=await getSB();
+        const {data:ex}=await sb.from("users").select("id").eq("email",f.email).maybeSingle();
+        if(ex){notify("Email already registered","error");return;}
+      }catch{}finally{setLoading(false);}
       setEmailStep(true);
     }
+  };
+
+  const confirmRegister=async()=>{
+    setLoading(true);
+    try{
+      const sb=await getSB();
+      const nu={id:genId(),name:f.name,email:f.email,phone:f.phone,
+        password:f.password,role:f.role,verified:true,ratings:[],carPrefs:[]};
+      const {error}=await sb.from("users").insert(userToRow(nu));
+      if(error)throw error;
+      setUsers(us=>[...us,nu]);
+      setCurrentUser(nu);setScreen("home");notify("Account created! Welcome 🎉","success");
+    }catch(e){notify("Registration failed — try again","error");console.error(e);}
+    finally{setLoading(false);}
   };
 
   if(emailStep) return(
@@ -1133,9 +1332,12 @@ function AuthScreen({authMode,setAuthMode,users,setUsers,setCurrentUser,setScree
         <div style={{width:64,height:64,borderRadius:"50%",background:"#fff5f5",border:"2px solid #fecaca",display:"flex",alignItems:"center",justifyContent:"center"}}>
           <Icon name="mail" size={30} color="#e8172c"/>
         </div>
-        <h2 style={{color:"#111",margin:0}}>Verify Your Email</h2>
-        <p style={{color:"#666",marginBottom:8}}>A verification link was sent to <strong style={{color:"#e8172c"}}>{f.email}</strong>.<br/>Click below to simulate verification.</p>
-        <button style={C.btnRed} onClick={()=>{const nu={id:genId(),...f,verified:true,ratings:[]};setUsers(u=>[...u,nu]);setCurrentUser(nu);setScreen("home");notify("Account created! Welcome 🎉","success");}}>✓ Confirm Email & Continue</button>
+        <h2 style={{color:"#111",margin:0}}>Almost there!</h2>
+        <p style={{color:"#666",marginBottom:8}}>Ready to create your account for <strong style={{color:"#e8172c"}}>{f.email}</strong></p>
+        <button style={{...C.btnRed,opacity:loading?0.7:1}} onClick={confirmRegister} disabled={loading}>
+          {loading?"Creating account...":"✓ Create My Account"}
+        </button>
+        <button style={C.btnGhost} onClick={()=>setEmailStep(false)}>← Go Back</button>
       </div>
     </div>
   );
@@ -2229,14 +2431,24 @@ function AddListingScreen({currentUser,setListings,notify,setScreen}){
   };
   const removePhoto=(i)=>setPhotos(ph=>ph.filter((_,j)=>j!==i));
 
-  const submit=()=>{
+  const submit=async()=>{
     const req=["make","model","year","partName","category","condition","price","description"];
     if(req.some(k=>!f[k]))return notify("Fill all required fields","error");
     if(f.model==="Other (not listed)"&&!f.customModel)return notify("Please enter the model name","error");
     if(photos.length===0)return notify("Add at least one photo","error");
-    const finalModel = f.model==="Other (not listed)" ? f.customModel : f.model;
-    setListings(ls=>[{id:genId(),sellerId:currentUser.id,sellerName:currentUser.name,sellerPhone:currentUser.phone,sellerEmail:currentUser.email,sellerLocation:f.location||"Location not set",...f,model:finalModel,photos,createdAt:Date.now(),sold:false},...ls]);
+    const finalModel=f.model==="Other (not listed)"?f.customModel:f.model;
+    const newListing={id:genId(),sellerId:currentUser.id,sellerName:currentUser.name,
+      sellerPhone:currentUser.phone,sellerEmail:currentUser.email,
+      sellerLocation:f.location||"Location not set",...f,model:finalModel,
+      photos,createdAt:Date.now(),sold:false};
+    // Optimistic UI
+    setListings(ls=>[newListing,...ls]);
     notify("Part listed successfully!","success");setScreen("mylistings");
+    // Persist to Supabase
+    try{
+      const sb=await getSB();
+      await sb.from("listings").insert(listingToRow(newListing));
+    }catch(e){console.error("Failed to save listing:",e);notify("Listing saved locally only — check connection","error");}
   };
 
   return(
@@ -2442,10 +2654,18 @@ function ChatScreen({chatKey,currentUser,chats,setChats,onBack,openRating,users}
   const seller=users.find(u=>u.id===sellerId);
   const rating=avgRating(seller?.ratings||[]);
 
-  const send=()=>{
+  const send=async()=>{
     if(!msg.trim()||!authorized)return;
-    setChats(c=>({...c,[key]:[...(c[key]||[]),{id:genId(),senderId:currentUser.id,senderName:currentUser.name,text:msg,ts:Date.now()}]}));
+    const newMsg={id:genId(),senderId:currentUser.id,senderName:currentUser.name,text:msg,ts:Date.now()};
+    const updated=[...(chats[key]||[]),newMsg];
+    // Optimistic: show instantly
+    setChats(c=>({...c,[key]:updated}));
     setMsg("");
+    // Persist to Supabase (upsert so first message creates row, subsequent update it)
+    try{
+      const sb=await getSB();
+      await sb.from("chats").upsert({chat_key:key,messages:updated,updated_at:new Date().toISOString()},{onConflict:"chat_key"});
+    }catch(e){console.error("Chat save failed:",e);}
   };
   useEffect(()=>{bottomRef.current?.scrollIntoView({behavior:"smooth"});},[messages.length]);
 
@@ -2717,7 +2937,7 @@ function ProfileScreen({currentUser,users,setUsers,setCurrentUser,setScreen,view
       </div>
 
       <div style={{padding:"0 16px"}}>
-        <button style={C.btnGhost} onClick={()=>{setCurrentUser(null);setActiveListing(null);setActiveChatKey(null);setScreen("splash");}}>Sign Out</button>
+        <button style={C.btnGhost} onClick={()=>{setCurrentUser(null);setActiveListing(null);setActiveChatKey(null);lsSet("sparez_currentUser",null);setScreen("splash");}}>Sign Out</button>
       </div>
       <div style={{height:80}}/>
     </div>
