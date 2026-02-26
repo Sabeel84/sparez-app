@@ -937,6 +937,7 @@ function profileToUser(profile, authEmail=""){
     verified:true,
     ratings:profile.ratings||[],
     carPrefs:profile.car_prefs||[],
+    currency:profile.currency||"USD",
   };
 }
 
@@ -1017,6 +1018,7 @@ export default function App(){
               name:meta.name||session.user.email,
               phone:meta.phone||"",
               role:meta.role||"buyer",
+              currency:meta.currency||"USD",
               ratings:[],
               car_prefs:[],
             };
@@ -1223,7 +1225,7 @@ export default function App(){
 
   // ── Splash screen ──────────────────────────────────────────────────────────
   if(screen==="splash") return(
-    <div style={{minHeight:"100vh",background:"#fff",display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
+    <div style={{minHeight:"100vh",background:"#fff",display:"flex",alignItems:"center",justifyContent:"center",padding:20,fontFamily:"'Segoe UI',system-ui,sans-serif"}}>
       <div style={{display:"flex",flexDirection:"column",alignItems:"center",gap:16,maxWidth:400,width:"100%"}}>
         <div style={{width:96,height:96,borderRadius:24,background:"#f5f5f5",display:"flex",alignItems:"center",justifyContent:"center",boxShadow:"0 8px 32px rgba(0,0,0,0.12)",border:"1px solid #eee"}}>
           <SparezLogo size={72}/>
@@ -1312,7 +1314,7 @@ export default function App(){
 
 // ─── Auth ─────────────────────────────────────────────────────────────────────
 function AuthScreen({authMode,setAuthMode,setCurrentUser,setUsers,setScreen,notify,TERMS}){
-  const [f,sf]=useState({name:"",email:"",phone:"",password:"",role:"buyer",termsAccepted:false});
+  const [f,sf]=useState({name:"",email:"",phone:"",password:"",role:"buyer",currency:"USD",termsAccepted:false});
   const [showTerms,setShowTerms]=useState(false);
   const [loading,setLoading]=useState(false);
   const [verifyStep,setVerifyStep]=useState(false);
@@ -1360,6 +1362,7 @@ function AuthScreen({authMode,setAuthMode,setCurrentUser,setUsers,setScreen,noti
             name:f.name,
             phone:f.phone,
             role:f.role,
+            currency:f.role==="seller"?f.currency||"USD":"USD",
             ratings:[],
             car_prefs:[],
           },{onConflict:"id"});
@@ -1371,7 +1374,7 @@ function AuthScreen({authMode,setAuthMode,setCurrentUser,setUsers,setScreen,noti
   };
 
   if(verifyStep) return(
-    <div style={{minHeight:"100vh",background:"#fff",display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
+    <div style={{minHeight:"100vh",background:"#fff",display:"flex",alignItems:"center",justifyContent:"center",padding:20,fontFamily:"'Segoe UI',system-ui,sans-serif"}}>
       <div style={{display:"flex",flexDirection:"column",alignItems:"center",gap:16,maxWidth:380,width:"100%",textAlign:"center"}}>
         <div style={{width:72,height:72,borderRadius:"50%",background:"linear-gradient(135deg,#fff5f5,#fecaca)",border:"2px solid #fca5a5",display:"flex",alignItems:"center",justifyContent:"center"}}>
           <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="#e8172c" strokeWidth="2" strokeLinecap="round"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg>
@@ -1398,7 +1401,7 @@ function AuthScreen({authMode,setAuthMode,setCurrentUser,setUsers,setScreen,noti
   );
 
   return(
-    <div style={{minHeight:"100vh",background:"#fff",display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
+    <div style={{minHeight:"100vh",background:"#fff",display:"flex",alignItems:"center",justifyContent:"center",padding:20,fontFamily:"'Segoe UI',system-ui,sans-serif"}}>
       <div style={{display:"flex",flexDirection:"column",gap:12,maxWidth:380,width:"100%"}}>
         <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:8}}>
           <SparezLogo size={36}/>
@@ -1413,10 +1416,21 @@ function AuthScreen({authMode,setAuthMode,setCurrentUser,setUsers,setScreen,noti
           <input style={C.input} placeholder="Full Name / Business Name" value={f.name} onChange={e=>set("name",e.target.value)}/>
           <div style={{display:"flex",gap:8}}>
             {["buyer","seller"].map(r=>(
-              <button key={r} style={{flex:1,padding:"10px",border:`1.5px solid ${f.role===r?"#e8172c":"#e0e0e0"}`,borderRadius:8,background:f.role===r?"#fff5f5":"#fff",color:f.role===r?"#e8172c":"#666",cursor:"pointer",fontWeight:600,fontSize:13}} onClick={()=>set("role",r)}>{r==="buyer"?"🛒 Buyer":"🏪 Seller"}</button>
+              <button key={r} style={{flex:1,padding:"12px 8px",border:`1.5px solid ${f.role===r?"#e8172c":"#e0e0e0"}`,borderRadius:10,background:f.role===r?"#fff5f5":"#fff",color:f.role===r?"#e8172c":"#666",cursor:"pointer",fontFamily:"inherit",display:"flex",flexDirection:"column",alignItems:"center",gap:3}} onClick={()=>set("role",r)}>
+                <span style={{fontSize:24}}>{r==="buyer"?"🛒":"🏪"}</span>
+                <span style={{fontWeight:700,fontSize:14}}>{r==="buyer"?"Buyer":"Seller"}</span>
+                <span style={{fontSize:10,color:f.role===r?"#e8172c":"#aaa",fontWeight:400}}>{r==="buyer"?"Browse & buy parts":"List & sell parts"}</span>
+              </button>
             ))}
           </div>
           <input style={C.input} placeholder="Phone Number" value={f.phone} onChange={e=>set("phone",e.target.value)} type="tel"/>
+          {f.role==="seller"&&(
+            <div style={{background:"#f8faff",border:"1.5px solid #dbeafe",borderRadius:10,padding:"12px 14px"}}>
+              <p style={{color:"#1d4ed8",fontSize:12,fontWeight:700,margin:"0 0 4px",fontFamily:"inherit"}}>💱 Your Selling Currency</p>
+              <p style={{color:"#888",fontSize:11,margin:"0 0 10px",fontFamily:"inherit"}}>All your listings will use this currency automatically</p>
+              <CurrencySelector value={f.currency} onChange={v=>set("currency",v)}/>
+            </div>
+          )}
         </>}
         <input style={C.input} placeholder="Email Address" value={f.email} onChange={e=>set("email",e.target.value)} type="email" autoComplete="email"/>
         <input style={C.input} placeholder="Password" value={f.password} onChange={e=>set("password",e.target.value)} type="password" autoComplete={authMode==="login"?"current-password":"new-password"}/>
@@ -1911,544 +1925,393 @@ function CameraModal({onCapture,onClose}){
 // ─── AI Part Scanner ──────────────────────────────────────────────────────────
 
 // Maps COCO-SSD detected objects → SPAREZ categories + part hints
-const COCO_TO_PART = {
-  "car":          {category:"Body Parts",    hints:["bumper","door","hood","fender","panel"]},
-  "truck":        {category:"Body Parts",    hints:["bumper","tailgate","door","bed liner"]},
-  "motorcycle":   {category:"Engine & Drivetrain", hints:["engine","exhaust","fork","wheel"]},
-  "bicycle":      {category:"Wheels & Tires", hints:["wheel","tire","rim"]},
-  "clock":        {category:"Electrical",    hints:["gauge","instrument cluster","speedo"]},
-  "tv":           {category:"Electrical",    hints:["screen","display","monitor"]},
-  "remote":       {category:"Electrical",    hints:["module","control unit","ECU"]},
-  "keyboard":     {category:"Interior",      hints:["dashboard","switch panel","console"]},
-  "mouse":        {category:"Interior",      hints:["button","knob","switch"]},
-  "cell phone":   {category:"Electrical",    hints:["sensor","module","unit"]},
-  "bottle":       {category:"Cooling",       hints:["reservoir","coolant tank","overflow"]},
-  "cup":          {category:"Cooling",       hints:["thermostat housing","cap","reservoir"]},
-  "bowl":         {category:"Brakes",        hints:["brake drum","rotor","disc"]},
-  "vase":         {category:"Cooling",       hints:["expansion tank","coolant reservoir"]},
-  "scissors":     {category:"Engine & Drivetrain", hints:["belt","chain","tensioner"]},
-  "toothbrush":   {category:"Engine & Drivetrain", hints:["spark plug","injector","sensor"]},
-  "hair drier":   {category:"Cooling",       hints:["blower","fan motor","HVAC"]},
-  "toilet":       {category:"Exhaust",       hints:["muffler","catalytic converter","pipe"]},
-  "sink":         {category:"Cooling",       hints:["radiator","heat exchanger","intercooler"]},
-  "oven":         {category:"Engine & Drivetrain", hints:["engine block","cylinder head"]},
-  "microwave":    {category:"Electrical",    hints:["ECU","module","amplifier","fuse box"]},
-  "refrigerator": {category:"Cooling",       hints:["AC compressor","condenser","evaporator"]},
-  "book":         {category:"Interior",      hints:["door card","trim panel","headliner"]},
-  "handbag":      {category:"Interior",      hints:["seat cover","upholstery","armrest"]},
-  "suitcase":     {category:"Body Parts",    hints:["trunk lid","boot lid","tailgate panel"]},
-  "backpack":     {category:"Body Parts",    hints:["fender","quarter panel","wing"]},
-  "umbrella":     {category:"Suspension",    hints:["strut","shock absorber","spring"]},
-  "sports ball":  {category:"Wheels & Tires", hints:["wheel","rim","hubcap","wheel cover"]},
-  "frisbee":      {category:"Brakes",        hints:["brake disc","rotor","brake drum"]},
-  "skis":         {category:"Suspension",    hints:["control arm","tie rod","sway bar link"]},
-  "surfboard":    {category:"Body Parts",    hints:["side skirt","rocker panel","door sill"]},
-  "pizza":        {category:"Brakes",        hints:["brake disc","rotor","brake pad set"]},
-  "donut":        {category:"Wheels & Tires", hints:["spare tire","donut wheel","run flat"]},
-  "cake":         {category:"Engine & Drivetrain", hints:["flywheel","pressure plate","clutch"]},
-  "couch":        {category:"Interior",      hints:["seat","bench seat","rear seat"]},
-  "chair":        {category:"Interior",      hints:["seat","bucket seat","driver seat"]},
-  "potted plant": {category:"Exhaust",       hints:["catalytic converter","DPF","muffler"]},
-  "bed":          {category:"Interior",      hints:["rear seat","bench","headrest"]},
-  "dining table": {category:"Suspension",   hints:["subframe","crossmember","cradle"]},
-  "laptop":       {category:"Electrical",   hints:["ECU","TCU","BCM","control module"]},
-  "hot dog":      {category:"Engine & Drivetrain", hints:["timing belt","serpentine belt","drive belt"]},
-  "knife":        {category:"Engine & Drivetrain", hints:["blade","scraper","gasket scraper"]},
-  "spoon":        {category:"Brakes",        hints:["brake spoon","caliper pin","slide pin"]},
-  "fork":         {category:"Suspension",    hints:["control arm","wishbone","A-arm"]},
-  "banana":       {category:"Engine & Drivetrain", hints:["exhaust manifold","header","turbo pipe"]},
-  "apple":        {category:"Engine & Drivetrain", hints:["air filter","throttle body","intake"]},
-  "orange":       {category:"Brakes",        hints:["brake drum","rotor","hub assembly"]},
-  "broccoli":     {category:"Cooling",       hints:["radiator","intercooler","oil cooler"]},
-  "carrot":       {category:"Fuel System",   hints:["injector","fuel rail","fuel line"]},
-  "sandwich":     {category:"Interior",      hints:["door panel","interior trim","headliner"]},
-  "default":      {category:"Other",         hints:["part","component","assembly","unit"]},
-};
+// ─── AI Part Scanner (Claude Vision) ─────────────────────────────────────────
 
-// Condition clues from OCR text
-const CONDITION_KEYWORDS = {
-  Excellent: ["new","oem","brand new","unused","mint","perfect","flawless","pristine","sealed"],
-  Good:      ["good","tested","working","clean","slight","minor","small scratch","lightly used"],
-  Fair:      ["fair","used","wear","worn","scratched","dent","crack","broken","damaged"],
-  Poor:      ["poor","broken","cracked","seized","bent","destroyed","stripped","for parts"],
-};
+async function analyseWithClaude(base64Image, mediaType){
+  const ANTHROPIC_KEY = import.meta.env.VITE_ANTHROPIC_KEY;
+  if(!ANTHROPIC_KEY) throw new Error("NO_KEY");
 
-// Extract OEM-style part numbers from OCR text
-function extractPartNumber(text){
-  const patterns=[
-    /\b[A-Z]{1,4}[-\s]?\d{4,8}[-\s]?[A-Z0-9]{0,4}\b/g,
-    /\b\d{5,8}[-\s]?[A-Z]{1,4}[-\s]?\d{2,4}\b/g,
-    /\b[A-Z]{2}\d{3}[A-Z]\d{2,3}\b/gi,
-    /\b\d{2,3}-\d{3,4}-\d{2,4}\b/g,
-  ];
-  for(const p of patterns){
-    const m=text.match(p);
-    if(m&&m[0]&&m[0].length>=5)return m[0].trim();
+  const res = await fetch("https://api.anthropic.com/v1/messages",{
+    method:"POST",
+    headers:{
+      "Content-Type":"application/json",
+      "x-api-key":ANTHROPIC_KEY,
+      "anthropic-version":"2023-06-01",
+      "anthropic-dangerous-direct-browser-access":"true",
+    },
+    body:JSON.stringify({
+      model:"claude-haiku-4-5-20251001",
+      max_tokens:512,
+      messages:[{
+        role:"user",
+        content:[
+          {type:"image",source:{type:"base64",media_type:mediaType,data:base64Image}},
+          {type:"text",text:`You are an expert auto parts identifier. Look at this image and identify the car part shown.
+Reply ONLY with a valid JSON object (no markdown, no explanation) with these exact keys:
+{
+  "partName": "e.g. Front Bumper Cover",
+  "category": one of ["Body Parts","Engine & Drivetrain","Transmission","Suspension","Electrical","Interior","Brakes","Cooling","Exhaust","Wheels & Tires","Other"],
+  "condition": one of ["Excellent","Good","Fair","Poor"],
+  "partNumber": "if visible on part, else empty string",
+  "year": "if visible, else empty string",
+  "description": "one sentence describing the part and its condition",
+  "confidence": number 0-100,
+  "notes": "any important details about fitment, damage, etc"
+}
+If this is not a car part, still fill all fields with your best guess using category "Other".`}
+        ]
+      }]
+    })
+  });
+  if(!res.ok){
+    const err = await res.json().catch(()=>({}));
+    throw new Error(err?.error?.message||`API error ${res.status}`);
   }
-  return null;
-}
-
-function guessConditionFromText(text){
-  const t=text.toLowerCase();
-  for(const [cond,kws] of Object.entries(CONDITION_KEYWORDS)){
-    if(kws.some(k=>t.includes(k)))return cond;
-  }
-  return null;
-}
-
-// Load TensorFlow + COCO-SSD from CDN dynamically
-async function loadTF(){
-  if(window._tfLoaded)return;
-  await new Promise((res,rej)=>{
-    const s=document.createElement("script");
-    s.src="https://cdnjs.cloudflare.com/ajax/libs/tensorflow/4.10.0/tf.min.js";
-    s.onload=res; s.onerror=rej; document.head.appendChild(s);
-  });
-  await new Promise((res,rej)=>{
-    const s=document.createElement("script");
-    s.src="https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd@2.2.2/dist/coco-ssd.min.js";
-    s.onload=res; s.onerror=rej; document.head.appendChild(s);
-  });
-  window._tfLoaded=true;
-}
-
-// Load Tesseract from CDN
-async function loadTesseract(){
-  if(window.Tesseract)return;
-  await new Promise((res,rej)=>{
-    const s=document.createElement("script");
-    s.src="https://cdnjs.cloudflare.com/ajax/libs/tesseract.js/5.0.4/tesseract.min.js";
-    s.onload=res; s.onerror=rej; document.head.appendChild(s);
-  });
+  const data = await res.json();
+  const text = data.content?.[0]?.text||"{}";
+  // Strip any markdown fences if model added them
+  const clean = text.replace(/```json|```/g,"").trim();
+  return JSON.parse(clean);
 }
 
 function AIPartScanner({onResult, onClose}){
-  const videoRef   = useRef();
-  const canvasRef  = useRef();
-  const streamRef  = useRef();
   const fileRef    = useRef();
-  const modelRef   = useRef();
-  const rafRef     = useRef();
-  const [phase, setPhase]       = useState("intro");   // intro|loading|camera|scanning|ocr|done|error
-  const [loadPct, setLoadPct]   = useState(0);
-  const [detections,setDetections] = useState([]);
-  const [topDet, setTopDet]     = useState(null);
-  const [ocrText, setOcrText]   = useState("");
-  const [result, setResult]     = useState(null);
+  const videoRef   = useRef();
+  const streamRef  = useRef();
+  const [phase, setPhase]         = useState("intro");  // intro|camera|camera_err|scanning|done|error|no_key
   const [capturedImg, setCapturedImg] = useState(null);
-  const [progress, setProgress] = useState("");
+  const [result, setResult]       = useState(null);
+  const [errorMsg, setErrorMsg]   = useState("");
+  const [progress, setProgress]   = useState("");
+  const [cameraReady, setCameraReady] = useState(false);
 
-  // Load models
-  const loadModels = async () => {
-    setPhase("loading"); setLoadPct(5);
-    try{
-      setProgress("Loading TensorFlow.js…"); setLoadPct(10);
-      await loadTF(); setLoadPct(35);
-      setProgress("Loading object detection model…");
-      modelRef.current = await window.cocoSsd.load(); setLoadPct(70);
-      setProgress("Loading OCR engine…");
-      await loadTesseract(); setLoadPct(90);
-      setProgress("Ready!"); setLoadPct(100);
-      setTimeout(()=>startCamera(), 400);
-    }catch(e){
-      console.error(e); setPhase("error");
-    }
+  const stopCam = () => {
+    streamRef.current?.getTracks().forEach(t=>t.stop());
+    streamRef.current = null;
   };
+  useEffect(()=>()=>{stopCam();},[]);
 
-  // Start camera
   const startCamera = async () => {
-    setPhase("camera");
+    setPhase("camera"); setCameraReady(false);
     try{
-      const stream = await navigator.mediaDevices.getUserMedia({video:{facingMode:"environment",width:{ideal:1280},height:{ideal:720}}});
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video:{facingMode:"environment",width:{ideal:1280},height:{ideal:720}}
+      });
       streamRef.current = stream;
-      videoRef.current.srcObject = stream;
-      await videoRef.current.play();
-      runDetection();
-    }catch(e){ setPhase("camera_err"); }
-  };
-
-  // Real-time detection loop on camera feed
-  const runDetection = async () => {
-    if(!modelRef.current||!videoRef.current) return;
-    const detect = async () => {
-      if(videoRef.current?.readyState>=2){
-        try{
-          const preds = await modelRef.current.detect(videoRef.current);
-          setDetections(preds);
-          drawBoxes(preds, videoRef.current);
-        }catch(e){}
+      if(videoRef.current){
+        videoRef.current.srcObject = stream;
+        await videoRef.current.play();
+        setCameraReady(true);
       }
-      rafRef.current = requestAnimationFrame(detect);
-    };
-    detect();
+    }catch(e){ stopCam(); setPhase("camera_err"); }
   };
 
-  const drawBoxes = (preds, video) => {
-    const canvas = canvasRef.current;
-    if(!canvas) return;
-    canvas.width  = video.videoWidth  || 640;
-    canvas.height = video.videoHeight || 480;
-    const ctx = canvas.getContext("2d");
-    ctx.clearRect(0,0,canvas.width,canvas.height);
-    preds.forEach(p=>{
-      const[x,y,w,h]=p.bbox;
-      const map = COCO_TO_PART[p.class]||COCO_TO_PART.default;
-      ctx.strokeStyle="#e8172c"; ctx.lineWidth=2.5; ctx.strokeRect(x,y,w,h);
-      ctx.fillStyle="rgba(232,23,44,0.85)";
-      ctx.fillRect(x,y-26,Math.min(w,220),26);
-      ctx.fillStyle="#fff"; ctx.font="bold 13px system-ui";
-      ctx.fillText(`${p.class} • ${map.category} • ${Math.round(p.score*100)}%`,x+6,y-8);
-    });
-  };
-
-  // Snap and analyse
-  const snap = async () => {
-    cancelAnimationFrame(rafRef.current);
-    setPhase("scanning");
+  const snap = () => {
     const video = videoRef.current;
-    const canvas = canvasRef.current;
+    if(!video) return;
+    const canvas = document.createElement("canvas");
     canvas.width  = video.videoWidth  || 640;
     canvas.height = video.videoHeight || 480;
-    const ctx = canvas.getContext("2d");
-    ctx.drawImage(video,0,0);
-    const imgData = canvas.toDataURL("image/jpeg",0.92);
-    setCapturedImg(imgData);
+    canvas.getContext("2d").drawImage(video,0,0);
     stopCam();
-    await analyse(imgData);
+    const imgData = canvas.toDataURL("image/jpeg",0.88);
+    setCapturedImg(imgData);
+    runAnalysis(imgData);
   };
 
-  // Upload from gallery
-  const handleFile = async (e) => {
+  const handleFile = (e) => {
     const file = e.target.files[0]; if(!file) return;
-    setPhase("scanning");
+    e.target.value="";
     const reader = new FileReader();
-    reader.onload = async ev => {
+    reader.onload = ev => {
       const imgData = ev.target.result;
       setCapturedImg(imgData);
-      await analyse(imgData);
+      runAnalysis(imgData);
     };
     reader.readAsDataURL(file);
   };
 
-  const analyse = async (imgDataUrl) => {
-    setProgress("Detecting parts…");
-    const img = new Image();
-    img.src = imgDataUrl;
-    await new Promise(r=>img.onload=r);
-
-    // 1. TensorFlow object detection
-    let preds = [];
+  const runAnalysis = async (imgDataUrl) => {
+    setPhase("scanning"); setProgress("Sending to AI…");
+    const ANTHROPIC_KEY = import.meta.env.VITE_ANTHROPIC_KEY;
+    if(!ANTHROPIC_KEY){
+      setPhase("no_key"); return;
+    }
     try{
-      if(modelRef.current) preds = await modelRef.current.detect(img);
-    }catch(e){}
-    setDetections(preds);
-
-    // 2. Tesseract OCR
-    setPhase("ocr"); setProgress("Reading text on part…");
-    let rawText = "";
-    try{
-      if(window.Tesseract){
-        const r = await window.Tesseract.recognize(imgDataUrl,"eng",{logger:()=>{}});
-        rawText = r.data.text||"";
+      // Extract base64 + mediaType from data URL
+      const [header, base64] = imgDataUrl.split(",");
+      const mediaType = header.match(/:(.*?);/)?.[1]||"image/jpeg";
+      setProgress("Claude AI is analysing your part…");
+      const parsed = await analyseWithClaude(base64, mediaType);
+      setResult(parsed);
+      setPhase("done");
+    }catch(e){
+      console.error("AI scanner error:",e);
+      if(e.message==="NO_KEY"){
+        setPhase("no_key");
+      } else {
+        setErrorMsg(e.message||"Analysis failed");
+        setPhase("error");
       }
-    }catch(e){}
-    setOcrText(rawText);
-
-    // 3. Build result
-    buildResult(preds, rawText);
+    }
   };
 
-  const buildResult = (preds, text) => {
-    setPhase("done");
-    // Best detection
-    const best = preds.sort((a,b)=>b.score-a.score)[0];
-    setTopDet(best||null);
-    const map = best ? (COCO_TO_PART[best.class]||COCO_TO_PART.default) : COCO_TO_PART.default;
-
-    // Pick a hint as part name suggestion
-    const partHint = map.hints[Math.floor(Math.random()*Math.min(2,map.hints.length))];
-    const partName = best
-      ? partHint.split(" ").map(w=>w[0].toUpperCase()+w.slice(1)).join(" ")
-      : "";
-
-    // OCR derived
-    const partNum   = extractPartNumber(text);
-    const condition = guessConditionFromText(text) || "Good";
-
-    // Try to extract make/model/year from text
-    const yearMatch = text.match(/\b(19[89]\d|20[012]\d)\b/);
-    const year      = yearMatch ? yearMatch[0] : "";
-
-    // Surface all for user review
-    setResult({
-      category:  map.category,
-      partName,
-      partNumber: partNum||"",
-      condition,
-      year,
-      description: best
-        ? `${best.class.charAt(0).toUpperCase()+best.class.slice(1)} detected · ${map.category} component. ${partHint.split(" ").map(w=>w[0].toUpperCase()+w.slice(1)).join(" ")} in ${condition.toLowerCase()} condition.`
-        : "Auto-detected part. Please verify details.",
-      confidence: best ? Math.round(best.score*100) : 0,
-      rawDetections: preds.map(p=>p.class),
-      ocrHadText: text.trim().length > 8,
+  const applyResult = () => {
+    if(!result) return;
+    onResult({
+      category:   result.category,
+      partName:   result.partName,
+      partNumber: result.partNumber,
+      condition:  result.condition,
+      year:       result.year,
+      description:result.description+(result.notes?"\n"+result.notes:""),
     });
+    onClose();
   };
 
-  const stopCam = () => {
-    cancelAnimationFrame(rafRef.current);
-    streamRef.current?.getTracks().forEach(t=>t.stop());
-  };
-  useEffect(()=>()=>{stopCam();},[]);
+  // Always show close button in header
+  const Header = ({title}) => (
+    <div style={{flexShrink:0,padding:"10px 16px 0"}}>
+      <div style={{width:36,height:4,background:"#e0e0e0",borderRadius:2,margin:"0 auto 14px"}}/>
+      <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",paddingBottom:10}}>
+        <div style={{display:"flex",alignItems:"center",gap:8}}>
+          <div style={{width:28,height:28,borderRadius:7,background:"linear-gradient(135deg,#7c3aed,#4f46e5)",display:"flex",alignItems:"center",justifyContent:"center"}}>
+            <span style={{fontSize:14}}>🤖</span>
+          </div>
+          <span style={{color:"#111",fontWeight:800,fontSize:15}}>{title||"AI Part Scanner"}</span>
+        </div>
+        <button onClick={()=>{stopCam();onClose();}} style={{width:32,height:32,borderRadius:"50%",background:"#f5f5f5",border:"none",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",fontSize:18,color:"#666"}}>×</button>
+      </div>
+    </div>
+  );
 
-  // ── Render ──────────────────────────────────────────────────────────────────
-  const Phase = {
-    intro: (
-      <div style={{display:"flex",flexDirection:"column",alignItems:"center",gap:20,padding:"40px 24px",textAlign:"center"}}>
-        <div style={{width:80,height:80,borderRadius:24,background:"linear-gradient(135deg,#7c3aed,#4f46e5)",display:"flex",alignItems:"center",justifyContent:"center",boxShadow:"0 8px 32px rgba(124,58,237,0.4)"}}>
-          <span style={{fontSize:38}}>🤖</span>
-        </div>
-        <div>
-          <h2 style={{color:"#111",fontWeight:900,fontSize:22,margin:"0 0 8px",letterSpacing:-0.5}}>AI Part Scanner</h2>
-          <p style={{color:"#888",fontSize:13,margin:0,lineHeight:1.7,maxWidth:280}}>Point your camera at any car part. AI will identify it and auto-fill your listing in seconds — completely free, runs on your device.</p>
-        </div>
-        <div style={{width:"100%",display:"flex",flexDirection:"column",gap:10}}>
-          {[["🔍","TensorFlow.js","Object detection — identifies the part type"],
-            ["📝","Tesseract OCR","Reads part numbers & text from the photo"],
-            ["⚡","100% Free","Runs in your browser, no API keys needed"]
+  // ── Phases ──────────────────────────────────────────────────────────────────
+
+  if(phase==="intro") return(
+    <div style={{position:"fixed",inset:0,zIndex:700,background:"rgba(0,0,0,0.55)",display:"flex",alignItems:"flex-end",justifyContent:"center"}}>
+      <div style={{background:"#fff",borderRadius:"22px 22px 0 0",width:"100%",maxWidth:430,maxHeight:"92vh",display:"flex",flexDirection:"column",overflow:"hidden"}}>
+        <Header/>
+        <div style={{padding:"20px 24px 32px",display:"flex",flexDirection:"column",gap:16,overflowY:"auto"}}>
+          <div style={{display:"flex",flexDirection:"column",alignItems:"center",gap:10,textAlign:"center",padding:"8px 0"}}>
+            <div style={{width:72,height:72,borderRadius:20,background:"linear-gradient(135deg,#7c3aed,#4f46e5)",display:"flex",alignItems:"center",justifyContent:"center",boxShadow:"0 8px 24px rgba(124,58,237,0.35)"}}>
+              <span style={{fontSize:34}}>🤖</span>
+            </div>
+            <div>
+              <h3 style={{color:"#111",fontWeight:900,fontSize:18,margin:"0 0 6px"}}>AI Part Scanner</h3>
+              <p style={{color:"#888",fontSize:13,margin:0,lineHeight:1.6,maxWidth:260}}>Take a photo or upload an image — Claude AI will identify the part and auto-fill your listing.</p>
+            </div>
+          </div>
+          {[["📸","Take a photo","Use your camera for best results"],
+            ["🖼️","Upload image","Pick from your gallery"],
+            ["⚡","Instant results","Part name, category, condition & more"]
           ].map(([e,t,d])=>(
-            <div key={t} style={{display:"flex",alignItems:"center",gap:12,background:"#f8f8f8",borderRadius:12,padding:"10px 14px",textAlign:"left"}}>
-              <span style={{fontSize:20}}>{e}</span>
+            <div key={t} style={{display:"flex",alignItems:"center",gap:12,background:"#f8f8f8",borderRadius:12,padding:"10px 14px"}}>
+              <span style={{fontSize:20,minWidth:28}}>{e}</span>
               <div><p style={{color:"#111",fontWeight:700,fontSize:13,margin:0}}>{t}</p><p style={{color:"#aaa",fontSize:11,margin:0}}>{d}</p></div>
             </div>
           ))}
-        </div>
-        <button style={C.btnRed} onClick={loadModels}>🚀 Start AI Scanner</button>
-        <button style={C.btnGhost} onClick={onClose}>Cancel</button>
-      </div>
-    ),
-
-    loading: (
-      <div style={{display:"flex",flexDirection:"column",alignItems:"center",gap:24,padding:"60px 32px",textAlign:"center"}}>
-        <div style={{position:"relative",width:80,height:80}}>
-          <svg width="80" height="80" viewBox="0 0 80 80" style={{position:"absolute",top:0,left:0,transform:"rotate(-90deg)"}}>
-            <circle cx="40" cy="40" r="34" fill="none" stroke="#f0f0f0" strokeWidth="6"/>
-            <circle cx="40" cy="40" r="34" fill="none" stroke="#7c3aed" strokeWidth="6"
-              strokeDasharray={`${2*Math.PI*34}`}
-              strokeDashoffset={`${2*Math.PI*34*(1-loadPct/100)}`}
-              style={{transition:"stroke-dashoffset .4s ease"}}/>
-          </svg>
-          <div style={{position:"absolute",inset:0,display:"flex",alignItems:"center",justifyContent:"center"}}>
-            <span style={{fontWeight:900,fontSize:16,color:"#7c3aed"}}>{loadPct}%</span>
+          <div style={{display:"flex",gap:8,marginTop:4}}>
+            <button style={C.btnRed} onClick={startCamera}>📸 Use Camera</button>
+            <button style={{...C.btnGhost,flex:"0 0 auto",width:"auto",padding:"13px 20px"}} onClick={()=>fileRef.current.click()}>🖼️ Upload</button>
           </div>
+          <input ref={fileRef} type="file" accept="image/*" style={{display:"none"}} onChange={handleFile}/>
         </div>
-        <div>
-          <p style={{color:"#111",fontWeight:700,fontSize:15,margin:"0 0 6px"}}>Loading AI Models</p>
-          <p style={{color:"#aaa",fontSize:13,margin:0}}>{progress}</p>
-        </div>
-        <p style={{color:"#ddd",fontSize:11,margin:0}}>First load takes ~10s · cached after that</p>
       </div>
-    ),
+    </div>
+  );
 
-    camera: (
-      <div style={{position:"relative",flex:1,background:"#000",display:"flex",flexDirection:"column"}}>
-        <video ref={videoRef} autoPlay playsInline muted style={{width:"100%",flex:1,objectFit:"cover"}}/>
-        <canvas ref={canvasRef} style={{position:"absolute",top:0,left:0,width:"100%",height:"100%",pointerEvents:"none"}}/>
-        {/* HUD overlay */}
-        <div style={{position:"absolute",inset:0,pointerEvents:"none"}}>
-          {/* corner brackets */}
-          {[{t:20,l:20,bt:"t",bl:"l"},{t:20,r:20,bt:"t",br:"r"},{b:80,l:20,bb:"b",bl:"l"},{b:80,r:20,bb:"b",br:"r"}].map((c,i)=>(
-            <div key={i} style={{position:"absolute",...c,width:28,height:28,
-              borderTop:c.bt?"2.5px solid #e8172c":"none",borderBottom:c.bb?"2.5px solid #e8172c":"none",
-              borderLeft:c.bl?"2.5px solid #e8172c":"none",borderRight:c.br?"2.5px solid #e8172c":"none"}}/>
+  if(phase==="camera") return(
+    <div style={{position:"fixed",inset:0,zIndex:700,background:"#000",display:"flex",flexDirection:"column"}}>
+      <video ref={videoRef} autoPlay playsInline muted style={{flex:1,width:"100%",objectFit:"cover"}}/>
+      {/* Viewfinder overlay */}
+      <div style={{position:"absolute",inset:0,pointerEvents:"none",display:"flex",alignItems:"center",justifyContent:"center"}}>
+        <div style={{width:260,height:260,position:"relative"}}>
+          {[[{top:0,left:0},{borderTop:"3px solid #fff",borderLeft:"3px solid #fff"}],
+            [{top:0,right:0},{borderTop:"3px solid #fff",borderRight:"3px solid #fff"}],
+            [{bottom:0,left:0},{borderBottom:"3px solid #fff",borderLeft:"3px solid #fff"}],
+            [{bottom:0,right:0},{borderBottom:"3px solid #fff",borderRight:"3px solid #fff"}]
+          ].map(([pos,border],i)=>(
+            <div key={i} style={{position:"absolute",...pos,width:40,height:40,borderRadius:3,...border}}/>
           ))}
-          <div style={{position:"absolute",bottom:85,left:0,right:0,textAlign:"center"}}>
-            {detections.length>0
-              ? <span style={{background:"rgba(232,23,44,0.9)",color:"#fff",fontSize:12,fontWeight:700,padding:"5px 14px",borderRadius:20}}>
-                  {detections[0].class} detected — {Math.round(detections[0].score*100)}% confidence
-                </span>
-              : <span style={{background:"rgba(0,0,0,0.6)",color:"rgba(255,255,255,0.7)",fontSize:12,padding:"5px 14px",borderRadius:20}}>
-                  Point camera at the part
-                </span>
-            }
-          </div>
-        </div>
-        {/* snap + gallery */}
-        <div style={{background:"rgba(0,0,0,0.85)",padding:"16px",display:"flex",alignItems:"center",justifyContent:"center",gap:28}}>
-          <button onClick={()=>fileRef.current.click()} style={{width:46,height:46,borderRadius:"50%",background:"rgba(255,255,255,0.1)",border:"1.5px solid rgba(255,255,255,0.2)",display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer"}}>
-            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2" strokeLinecap="round"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
-          </button>
-          <button onClick={snap} style={{width:68,height:68,borderRadius:"50%",background:"#fff",border:"4px solid #e8172c",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",boxShadow:"0 0 0 4px rgba(232,23,44,0.25)"}}>
-            <div style={{width:50,height:50,borderRadius:"50%",background:"#e8172c"}}/>
-          </button>
-          <button onClick={onClose} style={{width:46,height:46,borderRadius:"50%",background:"rgba(255,255,255,0.1)",border:"1.5px solid rgba(255,255,255,0.2)",display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer"}}>
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2.5" strokeLinecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-          </button>
-        </div>
-        <input ref={fileRef} type="file" accept="image/*" style={{display:"none"}} onChange={handleFile}/>
-      </div>
-    ),
-
-    camera_err: (
-      <div style={{display:"flex",flexDirection:"column",alignItems:"center",gap:16,padding:"48px 24px",textAlign:"center"}}>
-        <span style={{fontSize:44}}>📷</span>
-        <p style={{color:"#111",fontWeight:700,fontSize:16,margin:0}}>Camera unavailable</p>
-        <p style={{color:"#aaa",fontSize:13,margin:0}}>Upload a photo from your gallery instead</p>
-        <button style={C.btnRed} onClick={()=>fileRef.current.click()}>📁 Choose Photo</button>
-        <button style={C.btnGhost} onClick={onClose}>Cancel</button>
-        <input ref={fileRef} type="file" accept="image/*" style={{display:"none"}} onChange={handleFile}/>
-      </div>
-    ),
-
-    scanning: (
-      <div style={{display:"flex",flexDirection:"column",alignItems:"center",gap:20,padding:"48px 24px",textAlign:"center"}}>
-        {capturedImg&&<img src={capturedImg} alt="scan" style={{width:"100%",maxHeight:220,objectFit:"contain",borderRadius:12,border:"1px solid #f0f0f0"}}/>}
-        <div style={{display:"flex",flexDirection:"column",alignItems:"center",gap:12}}>
-          <div style={{width:48,height:48,borderRadius:"50%",border:"4px solid #e8172c",borderTopColor:"transparent",animation:"spin .8s linear infinite"}}>
-            <style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style>
-          </div>
-          <p style={{color:"#111",fontWeight:700,fontSize:15,margin:0}}>Analysing photo…</p>
-          <p style={{color:"#aaa",fontSize:13,margin:0}}>{progress||"Detecting objects…"}</p>
         </div>
       </div>
-    ),
+      <div style={{position:"absolute",top:"50%",left:0,right:0,textAlign:"center",transform:"translateY(-120px)"}}>
+        <span style={{background:"rgba(0,0,0,0.6)",color:"#fff",fontSize:12,padding:"6px 16px",borderRadius:20}}>
+          {cameraReady?"Centre the part in the frame":"Starting camera…"}
+        </span>
+      </div>
+      {/* Bottom controls */}
+      <div style={{background:"rgba(0,0,0,0.85)",padding:"20px 32px 36px",display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+        <button onClick={()=>{stopCam();setPhase("intro");}} style={{width:48,height:48,borderRadius:"50%",background:"rgba(255,255,255,0.15)",border:"none",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}}>
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2.5" strokeLinecap="round"><polyline points="15 18 9 12 15 6"/></svg>
+        </button>
+        <button onClick={snap} disabled={!cameraReady} style={{width:72,height:72,borderRadius:"50%",background:cameraReady?"#fff":"#666",border:`4px solid ${cameraReady?"#e8172c":"#444"}`,cursor:cameraReady?"pointer":"not-allowed",display:"flex",alignItems:"center",justifyContent:"center",boxShadow:cameraReady?"0 0 0 6px rgba(232,23,44,0.25)":"none"}}>
+          <div style={{width:54,height:54,borderRadius:"50%",background:cameraReady?"#e8172c":"#555"}}/>
+        </button>
+        <button onClick={()=>fileRef.current.click()} style={{width:48,height:48,borderRadius:"50%",background:"rgba(255,255,255,0.15)",border:"none",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}}>
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2" strokeLinecap="round"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
+        </button>
+      </div>
+      <input ref={fileRef} type="file" accept="image/*" style={{display:"none"}} onChange={handleFile}/>
+    </div>
+  );
 
-    ocr: (
-      <div style={{display:"flex",flexDirection:"column",alignItems:"center",gap:20,padding:"48px 24px",textAlign:"center"}}>
-        {capturedImg&&<img src={capturedImg} alt="scan" style={{width:"100%",maxHeight:200,objectFit:"contain",borderRadius:12,border:"1px solid #f0f0f0"}}/>}
-        <div style={{display:"flex",alignItems:"center",gap:12}}>
-          <span style={{fontSize:28}}>📝</span>
-          <div style={{textAlign:"left"}}>
-            <p style={{color:"#111",fontWeight:700,fontSize:14,margin:0}}>Reading text…</p>
-            <p style={{color:"#aaa",fontSize:12,margin:0}}>Scanning for part numbers & labels</p>
+  if(phase==="camera_err") return(
+    <div style={{position:"fixed",inset:0,zIndex:700,background:"rgba(0,0,0,0.55)",display:"flex",alignItems:"flex-end",justifyContent:"center"}}>
+      <div style={{background:"#fff",borderRadius:"22px 22px 0 0",width:"100%",maxWidth:430,display:"flex",flexDirection:"column",overflow:"hidden"}}>
+        <Header/>
+        <div style={{padding:"24px",display:"flex",flexDirection:"column",alignItems:"center",gap:14,textAlign:"center",paddingBottom:36}}>
+          <span style={{fontSize:48}}>📷</span>
+          <div>
+            <p style={{color:"#111",fontWeight:700,fontSize:16,margin:"0 0 6px"}}>Camera access denied</p>
+            <p style={{color:"#888",fontSize:13,margin:0,lineHeight:1.6}}>No problem — upload a photo from your gallery to identify the part.</p>
           </div>
+          <button style={C.btnRed} onClick={()=>fileRef.current.click()}>🖼️ Choose from Gallery</button>
+          <input ref={fileRef} type="file" accept="image/*" style={{display:"none"}} onChange={handleFile}/>
         </div>
-        <div style={{width:"100%",background:"#f5f5f5",borderRadius:8,height:6,overflow:"hidden"}}>
-          <div style={{height:"100%",background:"linear-gradient(90deg,#7c3aed,#e8172c)",animation:"progress 2s ease infinite",backgroundSize:"200%"}}>
-            <style>{`@keyframes progress{0%{background-position:100%}100%{background-position:0%}}`}</style>
+      </div>
+    </div>
+  );
+
+  if(phase==="scanning") return(
+    <div style={{position:"fixed",inset:0,zIndex:700,background:"rgba(0,0,0,0.55)",display:"flex",alignItems:"flex-end",justifyContent:"center"}}>
+      <div style={{background:"#fff",borderRadius:"22px 22px 0 0",width:"100%",maxWidth:430,display:"flex",flexDirection:"column",overflow:"hidden"}}>
+        <Header title="Analysing…"/>
+        <div style={{padding:"28px 24px 40px",display:"flex",flexDirection:"column",alignItems:"center",gap:18}}>
+          {capturedImg&&<img src={capturedImg} alt="" style={{width:"100%",maxHeight:200,objectFit:"contain",borderRadius:12,border:"1px solid #f0f0f0"}}/>}
+          <div style={{display:"flex",flexDirection:"column",alignItems:"center",gap:10}}>
+            <div style={{width:44,height:44,borderRadius:"50%",border:"4px solid #7c3aed",borderTopColor:"transparent",animation:"spin .8s linear infinite"}}>
+              <style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style>
+            </div>
+            <p style={{color:"#111",fontWeight:700,fontSize:15,margin:0}}>{progress||"Contacting Claude AI…"}</p>
+            <p style={{color:"#aaa",fontSize:12,margin:0}}>Usually takes 3–6 seconds</p>
           </div>
         </div>
       </div>
-    ),
+    </div>
+  );
 
-    done: result&&(
-      <div style={{padding:20,display:"flex",flexDirection:"column",gap:14,overflowY:"auto",maxHeight:"80vh"}}>
-        {/* Captured photo + confidence */}
-        <div style={{position:"relative",borderRadius:14,overflow:"hidden",border:"1px solid #f0f0f0"}}>
-          {capturedImg&&<img src={capturedImg} alt="scan" style={{width:"100%",maxHeight:180,objectFit:"cover",display:"block"}}/>}
-          <div style={{position:"absolute",top:10,right:10,background:result.confidence>60?"rgba(22,163,74,0.92)":"rgba(232,23,44,0.92)",borderRadius:20,padding:"4px 12px"}}>
-            <span style={{color:"#fff",fontSize:11,fontWeight:800}}>
-              {result.confidence>0?`${result.confidence}% confident`:"OCR mode"}
-            </span>
-          </div>
-          {result.rawDetections.length>0&&(
-            <div style={{position:"absolute",bottom:8,left:8,display:"flex",gap:5,flexWrap:"wrap"}}>
-              {result.rawDetections.slice(0,3).map(d=>(
-                <span key={d} style={{background:"rgba(0,0,0,0.7)",color:"#fff",fontSize:10,padding:"2px 8px",borderRadius:20}}>{d}</span>
-              ))}
+  if(phase==="done"&&result) return(
+    <div style={{position:"fixed",inset:0,zIndex:700,background:"rgba(0,0,0,0.55)",display:"flex",alignItems:"flex-end",justifyContent:"center"}}>
+      <div style={{background:"#fff",borderRadius:"22px 22px 0 0",width:"100%",maxWidth:430,maxHeight:"92vh",display:"flex",flexDirection:"column",overflow:"hidden"}}>
+        <Header title="AI Result"/>
+        <div style={{flex:1,overflowY:"auto",padding:"0 16px 32px",display:"flex",flexDirection:"column",gap:12}}>
+          {/* Photo + confidence badge */}
+          {capturedImg&&(
+            <div style={{position:"relative",borderRadius:12,overflow:"hidden",border:"1px solid #f0f0f0",marginTop:4}}>
+              <img src={capturedImg} alt="" style={{width:"100%",maxHeight:180,objectFit:"cover",display:"block"}}/>
+              <div style={{position:"absolute",top:8,right:8,background:result.confidence>60?"rgba(22,163,74,0.92)":"rgba(245,158,11,0.95)",borderRadius:20,padding:"3px 10px"}}>
+                <span style={{color:"#fff",fontSize:11,fontWeight:800}}>{result.confidence}% confident</span>
+              </div>
             </div>
           )}
+          {/* Banner */}
+          <div style={{background:"linear-gradient(135deg,#f5f0ff,#ede9fe)",borderRadius:12,padding:"12px 14px",border:"1px solid #ddd6fe",display:"flex",gap:10,alignItems:"center"}}>
+            <span style={{fontSize:20}}>🤖</span>
+            <div>
+              <p style={{color:"#6d28d9",fontWeight:800,fontSize:13,margin:0}}>Claude AI identified this part</p>
+              <p style={{color:"#8b5cf6",fontSize:11,margin:0}}>{result.description}</p>
+            </div>
+          </div>
+          {/* Fields */}
+          <div style={{background:"#fff",borderRadius:14,border:"1px solid #f0f0f0",overflow:"hidden"}}>
+            <div style={{background:"#fafafa",padding:"10px 14px",borderBottom:"1px solid #f0f0f0"}}>
+              <p style={{color:"#111",fontWeight:800,fontSize:13,margin:0}}>Will auto-fill these fields</p>
+            </div>
+            {[
+              ["Category",    result.category,    true],
+              ["Part Name",   result.partName,     !!result.partName],
+              ["Part No.",    result.partNumber||"Not found", !!result.partNumber],
+              ["Condition",   result.condition,    true],
+              ["Year",        result.year||"Not found", !!result.year],
+            ].map(([label,val,found])=>(
+              <div key={label} style={{display:"flex",alignItems:"center",gap:10,padding:"9px 14px",borderBottom:"1px solid #f8f8f8"}}>
+                <div style={{width:7,height:7,borderRadius:"50%",flexShrink:0,background:found?"#16a34a":"#e0e0e0"}}/>
+                <p style={{color:"#aaa",fontSize:10,fontWeight:700,textTransform:"uppercase",margin:0,minWidth:70}}>{label}</p>
+                <p style={{color:"#111",fontSize:13,fontWeight:600,margin:0,flex:1}}>{val}</p>
+                {found&&<span style={{color:"#16a34a",fontSize:10,fontWeight:700}}>✓</span>}
+              </div>
+            ))}
+          </div>
+          {result.notes&&(
+            <div style={{background:"#fffbeb",borderRadius:10,padding:"10px 14px",border:"1px solid #fde68a"}}>
+              <p style={{color:"#92400e",fontSize:11,fontWeight:700,margin:"0 0 4px"}}>💡 AI Notes</p>
+              <p style={{color:"#78350f",fontSize:12,margin:0,lineHeight:1.5}}>{result.notes}</p>
+            </div>
+          )}
+          {/* Actions */}
+          <div style={{display:"flex",gap:8,paddingTop:4}}>
+            <button style={{...C.btnGhost,flex:1}} onClick={()=>{setCapturedImg(null);setResult(null);setPhase("intro");}}>🔄 Retry</button>
+            <button style={{...C.btnRed,flex:2,background:"linear-gradient(135deg,#7c3aed,#6d28d9)",boxShadow:"0 4px 14px rgba(124,58,237,0.4)"}}
+              onClick={applyResult}>⚡ Apply to Form</button>
+          </div>
         </div>
+      </div>
+    </div>
+  );
 
-        {/* AI result banner */}
-        <div style={{background:"linear-gradient(135deg,#f5f0ff,#ede9fe)",borderRadius:12,padding:"12px 16px",border:"1px solid #ddd6fe",display:"flex",alignItems:"center",gap:10}}>
-          <span style={{fontSize:22}}>🤖</span>
-          <div>
-            <p style={{color:"#6d28d9",fontWeight:800,fontSize:13,margin:0}}>AI Analysis Complete</p>
-            <p style={{color:"#8b5cf6",fontSize:11,margin:0}}>
-              {result.confidence>0?`Detected: ${result.rawDetections[0]||"part"} → ${result.category}`:"Text scanned — review suggestions below"}
-              {result.ocrHadText?" · Part text found":""}
+  if(phase==="no_key") return(
+    <div style={{position:"fixed",inset:0,zIndex:700,background:"rgba(0,0,0,0.55)",display:"flex",alignItems:"flex-end",justifyContent:"center"}}>
+      <div style={{background:"#fff",borderRadius:"22px 22px 0 0",width:"100%",maxWidth:430,display:"flex",flexDirection:"column",overflow:"hidden"}}>
+        <Header title="Setup Required"/>
+        <div style={{padding:"24px",display:"flex",flexDirection:"column",gap:14,paddingBottom:36}}>
+          <div style={{background:"#fffbeb",borderRadius:12,padding:"14px",border:"1px solid #fde68a"}}>
+            <p style={{color:"#92400e",fontWeight:700,fontSize:14,margin:"0 0 8px"}}>⚠️ Anthropic API key needed</p>
+            <p style={{color:"#78350f",fontSize:12,margin:0,lineHeight:1.7}}>
+              The AI scanner uses Claude AI to identify parts.<br/>
+              Add <code style={{background:"#fef3c7",padding:"1px 5px",borderRadius:4}}>VITE_ANTHROPIC_KEY</code> to your Vercel environment variables.
             </p>
           </div>
-        </div>
-
-        {/* Auto-filled fields preview */}
-        <div style={{background:"#fff",borderRadius:14,border:"1px solid #f0f0f0",overflow:"hidden"}}>
-          <div style={{background:"#fafafa",padding:"10px 16px",borderBottom:"1px solid #f0f0f0"}}>
-            <p style={{color:"#111",fontWeight:800,fontSize:13,margin:0}}>Fields to Auto-Fill</p>
-            <p style={{color:"#aaa",fontSize:11,margin:0}}>Review and tap Apply to fill your form</p>
+          <div style={{background:"#f8f8f8",borderRadius:10,padding:"12px 14px"}}>
+            <p style={{color:"#666",fontSize:12,fontWeight:700,margin:"0 0 6px"}}>How to set it up:</p>
+            <p style={{color:"#888",fontSize:12,margin:0,lineHeight:1.8}}>
+              1. Go to <strong>console.anthropic.com</strong><br/>
+              2. Create an API key<br/>
+              3. Add to Vercel: <strong>Settings → Environment Variables</strong><br/>
+              4. Name: <code>VITE_ANTHROPIC_KEY</code> · Value: your key<br/>
+              5. Redeploy
+            </p>
           </div>
-          {[
-            ["Category",  result.category,  result.confidence>0],
-            ["Part Name", result.partName||"—", result.confidence>0],
-            ["Part Number",result.partNumber||"—",!!result.partNumber],
-            ["Condition", result.condition,  true],
-            ["Year",      result.year||"—",  !!result.year],
-            ["Description",result.description,"auto"],
-          ].map(([label,val,found])=>(
-            <div key={label} style={{display:"flex",alignItems:"center",gap:12,padding:"10px 16px",borderBottom:"1px solid #f8f8f8"}}>
-              <div style={{width:8,height:8,borderRadius:"50%",background:found===true?"#16a34a":found==="auto"?"#7c3aed":"#e0e0e0",flexShrink:0}}/>
-              <div style={{flex:1,minWidth:0}}>
-                <p style={{color:"#aaa",fontSize:10,fontWeight:700,textTransform:"uppercase",letterSpacing:0.5,margin:0}}>{label}</p>
-                <p style={{color:"#111",fontSize:13,fontWeight:600,margin:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{val}</p>
-              </div>
-              {found===true&&<span style={{color:"#16a34a",fontSize:10,fontWeight:700,flexShrink:0}}>✓ AI</span>}
-              {found==="auto"&&<span style={{color:"#7c3aed",fontSize:10,fontWeight:700,flexShrink:0}}>✓ GEN</span>}
-            </div>
-          ))}
+          <button style={C.btnGhost} onClick={onClose}>Close</button>
         </div>
+      </div>
+    </div>
+  );
 
-        {/* OCR text (if found) */}
-        {ocrText.trim().length>8&&(
-          <div style={{background:"#fffbeb",borderRadius:10,padding:"10px 14px",border:"1px solid #fde68a"}}>
-            <p style={{color:"#92400e",fontSize:10,fontWeight:800,textTransform:"uppercase",letterSpacing:0.5,margin:"0 0 4px"}}>📝 Text found on part</p>
-            <p style={{color:"#78350f",fontSize:12,margin:0,lineHeight:1.5,fontFamily:"monospace"}}>{ocrText.trim().slice(0,120)}{ocrText.trim().length>120?"…":""}</p>
+  if(phase==="error") return(
+    <div style={{position:"fixed",inset:0,zIndex:700,background:"rgba(0,0,0,0.55)",display:"flex",alignItems:"flex-end",justifyContent:"center"}}>
+      <div style={{background:"#fff",borderRadius:"22px 22px 0 0",width:"100%",maxWidth:430,display:"flex",flexDirection:"column",overflow:"hidden"}}>
+        <Header title="Analysis Failed"/>
+        <div style={{padding:"24px",display:"flex",flexDirection:"column",alignItems:"center",gap:14,textAlign:"center",paddingBottom:36}}>
+          <span style={{fontSize:44}}>⚠️</span>
+          <div>
+            <p style={{color:"#111",fontWeight:700,fontSize:15,margin:"0 0 6px"}}>Couldn't analyse the photo</p>
+            <p style={{color:"#888",fontSize:12,margin:0,lineHeight:1.6}}>{errorMsg||"Please check your connection and try again."}</p>
           </div>
-        )}
-
-        {/* Actions */}
-        <div style={{display:"flex",gap:8}}>
-          <button style={{...C.btnGhost,flex:1}} onClick={()=>{setPhase("camera");setResult(null);startCamera();}}>🔄 Rescan</button>
-          <button style={{...C.btnRed,flex:2,background:"linear-gradient(135deg,#7c3aed,#6d28d9)",boxShadow:"0 4px 14px rgba(124,58,237,0.4)"}}
-            onClick={()=>{onResult(result);onClose();}}>
-            ⚡ Apply to Form
-          </button>
+          <div style={{display:"flex",gap:8,width:"100%"}}>
+            <button style={{...C.btnGhost,flex:1}} onClick={()=>{setCapturedImg(null);setResult(null);setPhase("intro");}}>Try Again</button>
+            <button style={{...C.btnRed,flex:1}} onClick={onClose}>Close</button>
+          </div>
         </div>
-        <div style={{height:16}}/>
       </div>
-    ),
+    </div>
+  );
 
-    error: (
-      <div style={{display:"flex",flexDirection:"column",alignItems:"center",gap:16,padding:"48px 24px",textAlign:"center"}}>
-        <span style={{fontSize:44}}>⚠️</span>
-        <p style={{color:"#111",fontWeight:700,fontSize:16,margin:0}}>Failed to load AI models</p>
-        <p style={{color:"#aaa",fontSize:13,margin:0,lineHeight:1.6}}>Check your internet connection. Models load from CDN (~8MB) on first use.</p>
-        <button style={C.btnRed} onClick={loadModels}>Try Again</button>
-        <button style={C.btnGhost} onClick={onClose}>Cancel</button>
-      </div>
-    ),
-  };
-
+  // Fallback — should never reach here but always closeable
   return(
     <div style={{position:"fixed",inset:0,zIndex:700,background:"rgba(0,0,0,0.55)",display:"flex",alignItems:"flex-end",justifyContent:"center"}}>
-      <div style={{background:"#fff",borderRadius:"22px 22px 0 0",width:"100%",maxWidth:430,maxHeight:"92vh",display:"flex",flexDirection:"column",overflow:"hidden",boxShadow:"0 -8px 40px rgba(0,0,0,0.2)"}}>
-        {/* drag handle + header */}
-        <div style={{flexShrink:0,padding:"10px 16px 0"}}>
-          <div style={{width:36,height:4,background:"#e0e0e0",borderRadius:2,margin:"0 auto 14px"}}/>
-          <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:phase==="camera"||phase==="camera_err"?0:8}}>
-            <div style={{display:"flex",alignItems:"center",gap:8}}>
-              <div style={{width:28,height:28,borderRadius:7,background:"linear-gradient(135deg,#7c3aed,#4f46e5)",display:"flex",alignItems:"center",justifyContent:"center"}}>
-                <span style={{fontSize:14}}>🤖</span>
-              </div>
-              <span style={{color:"#111",fontWeight:800,fontSize:15}}>AI Part Scanner</span>
-              <span style={{background:"#f0fdf4",color:"#16a34a",fontSize:10,fontWeight:700,padding:"2px 8px",borderRadius:20,border:"1px solid #bbf7d0"}}>FREE</span>
-            </div>
-            {phase!=="camera"&&<button onClick={onClose} style={{background:"none",border:"none",cursor:"pointer",color:"#bbb",fontSize:22,lineHeight:1,padding:0}}>×</button>}
-          </div>
-        </div>
-
-        {/* phase content */}
-        <div style={{flex:1,overflow:"hidden",display:"flex",flexDirection:"column"}}>
-          {Phase[phase]||null}
-        </div>
+      <div style={{background:"#fff",borderRadius:"22px 22px 0 0",width:"100%",maxWidth:430,padding:24,display:"flex",flexDirection:"column",gap:12}}>
+        <Header/>
+        <button style={C.btnGhost} onClick={onClose}>Close</button>
       </div>
     </div>
   );
 }
 // ─── End AI Part Scanner ──────────────────────────────────────────────────────
 
+
 function AddListingScreen({currentUser,setListings,notify,setScreen}){
-  const [f,sf]=useState({make:"",model:"",year:"",vin:"",partName:"",partNumber:"",category:"Body Parts",condition:"Good",price:"",currency:"USD",description:"",location:""});
+  const [f,sf]=useState({make:"",model:"",year:"",vin:"",partName:"",partNumber:"",category:"Body Parts",condition:"Good",price:"",description:"",location:""});
   const [photos,setPhotos]=useState([]);
   const [showCamera,setShowCamera]=useState(false);
   const [showPhotoMenu,setShowPhotoMenu]=useState(false);
@@ -2498,7 +2361,7 @@ function AddListingScreen({currentUser,setListings,notify,setScreen}){
     const newListing={id:genId(),sellerId:currentUser.id,sellerName:currentUser.name,
       sellerPhone:currentUser.phone,sellerEmail:currentUser.email,
       sellerLocation:f.location||"Location not set",...f,model:finalModel,
-      photos,createdAt:Date.now(),sold:false};
+      currency:currentUser.currency||"USD",photos,createdAt:Date.now(),sold:false};
     // Optimistic UI
     setListings(ls=>[newListing,...ls]);
     notify("Part listed successfully!","success");setScreen("mylistings");
@@ -2603,13 +2466,12 @@ function AddListingScreen({currentUser,setListings,notify,setScreen}){
             <select style={C.input} value={f.condition} onChange={e=>set("condition",e.target.value)}>{CONDITIONS.map(c=><option key={c}>{c}</option>)}</select>
             <input style={C.input} placeholder="Price *" value={f.price} onChange={e=>set("price",e.target.value)} type="number"/>
           </div>
-          <div>
-            <p style={{color:"#aaa",fontSize:10,fontWeight:800,textTransform:"uppercase",letterSpacing:0.6,margin:"0 0 8px"}}>Currency</p>
-            <div style={{display:"flex",flexWrap:"wrap",gap:6,marginBottom:8}}>
-              {CURRENCIES.slice(0,10).map(c=><Pill key={c.code} label={`${c.flag} ${c.code}`} active={f.currency===c.code} onClick={()=>set("currency",c.code)}/>)}
-              <CurrencySelector value={f.currency} onChange={v=>set("currency",v)} compact/>
+          <div style={{background:"#f0fdf4",border:"1px solid #bbf7d0",borderRadius:10,padding:"10px 14px",display:"flex",alignItems:"center",gap:10}}>
+            <span style={{fontSize:22}}>{getCur(currentUser.currency||"USD").flag}</span>
+            <div>
+              <p style={{color:"#16a34a",fontSize:13,fontWeight:700,margin:0}}>Listing in {getCur(currentUser.currency||"USD").name} ({getCur(currentUser.currency||"USD").sym})</p>
+              <p style={{color:"#4ade80",fontSize:11,margin:"2px 0 0"}}>Your default currency · change in Profile settings</p>
             </div>
-            <p style={{color:"#bbb",fontSize:11,margin:0}}>Selected: {getCur(f.currency).flag} {getCur(f.currency).name} ({getCur(f.currency).sym})</p>
           </div>
           <textarea style={{...C.input,height:80,resize:"none"}} placeholder="Description *" value={f.description} onChange={e=>set("description",e.target.value)}/>
           <input style={C.input} placeholder="Your Location (City, State) *" value={f.location} onChange={e=>set("location",e.target.value)}/>
@@ -2961,17 +2823,37 @@ function ProfileScreen({currentUser,users,setUsers,setCurrentUser,setScreen,view
 
       {/* Currency Preference */}
       <div style={{background:"#fff",margin:"0 16px 16px",borderRadius:12,padding:14,border:"1px solid #f0f0f0"}}>
-        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:10}}>
-          <div>
-            <p style={{color:"#111",fontWeight:700,margin:0,fontSize:14}}>Display Currency</p>
-            <p style={{color:"#aaa",fontSize:12,margin:"3px 0 0"}}>Auto-detected from your location · change anytime</p>
-          </div>
-          <CurrencySelector value={viewCur} onChange={setViewCur}/>
-        </div>
-        <div style={{background:"#f5f5f5",borderRadius:8,padding:"8px 12px"}}>
-          <p style={{color:"#888",fontSize:11,margin:0}}>Active: <span style={{color:"#111",fontWeight:700}}>{getCur(viewCur).flag} {getCur(viewCur).name} ({getCur(viewCur).sym})</span></p>
-          <p style={{color:"#bbb",fontSize:10,margin:"3px 0 0"}}>⚠️ Rates are indicative — confirm final price with seller.</p>
-        </div>
+        {currentUser.role==="seller"?(
+          <>
+            <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:10}}>
+              <div style={{width:34,height:34,borderRadius:8,background:"#f0fdf4",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}><span style={{fontSize:18}}>💱</span></div>
+              <div>
+                <p style={{color:"#111",fontWeight:700,margin:0,fontSize:14}}>Selling Currency</p>
+                <p style={{color:"#aaa",fontSize:11,margin:"2px 0 0"}}>Used automatically for all your listings</p>
+              </div>
+            </div>
+            <CurrencySelector value={currentUser.currency||"USD"} onChange={async(v)=>{
+              setCurrentUser(cu=>({...cu,currency:v}));
+              setUsers(us=>us.map(u=>u.id===currentUser.id?{...u,currency:v}:u));
+              try{const sb=await getSB();await sb.from("profiles").update({currency:v}).eq("id",currentUser.id);}catch(e){console.error(e);}
+            }}/>
+            <p style={{color:"#aaa",fontSize:10,margin:"8px 0 0"}}>New listings will use {getCur(currentUser.currency||"USD").flag} {getCur(currentUser.currency||"USD").sym} {getCur(currentUser.currency||"USD").code}</p>
+          </>
+        ):(
+          <>
+            <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:10}}>
+              <div>
+                <p style={{color:"#111",fontWeight:700,margin:0,fontSize:14}}>Display Currency</p>
+                <p style={{color:"#aaa",fontSize:12,margin:"3px 0 0"}}>Prices shown in your preferred currency</p>
+              </div>
+              <CurrencySelector value={viewCur} onChange={setViewCur}/>
+            </div>
+            <div style={{background:"#f5f5f5",borderRadius:8,padding:"8px 12px"}}>
+              <p style={{color:"#888",fontSize:11,margin:0}}>Active: <span style={{color:"#111",fontWeight:700}}>{getCur(viewCur).flag} {getCur(viewCur).name} ({getCur(viewCur).sym})</span></p>
+              <p style={{color:"#bbb",fontSize:10,margin:"3px 0 0"}}>⚠️ Rates are indicative — confirm final price with seller.</p>
+            </div>
+          </>
+        )}
       </div>
 
       {/* Reviews */}
