@@ -1928,58 +1928,28 @@ function CameraModal({onCapture,onClose}){
 // ─── AI Part Scanner — Powered by Google Gemini (Free) ───────────────────────
 
 async function analyseWithGemini(base64Image, mediaType) {
-  const KEY = import.meta.env.VITE_GEMINI_KEY;
-  if (!KEY) throw new Error("NO_KEY");
+  // Calls our Supabase Edge Function — keeps the Gemini key secret on the server
+  // so users can never steal it from the browser and drain your quota
+  const SUPABASE_URL = "https://bqgkpypxbdiiciznzhnq.supabase.co";
+  const SUPABASE_ANON = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJxZ2tweXB4YmRpaWNpem56aG5xIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDgwODQ1MDEsImV4cCI6MjA2MzY2MDUwMX0.WMeT2ioFnBPNItfH7OP_TQE97nHDz3GnJ-6FVaRkAzM";
 
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${KEY}`;
-
-  const prompt = `You are an expert auto parts identifier. Analyse this image and identify the car part shown.
-Reply ONLY with a valid JSON object — no markdown, no explanation, no code fences. Use exactly these keys:
-{
-  "partName": "specific part name e.g. Front Bumper Cover",
-  "category": "one of: Body Parts | Engine & Drivetrain | Transmission | Suspension | Electrical | Interior | Brakes | Cooling | Exhaust | Wheels & Tires | Other",
-  "condition": "one of: Excellent | Good | Fair | Poor",
-  "partNumber": "OEM part number if visible on part, else empty string",
-  "year": "model year if visible, else empty string",
-  "description": "one clear sentence describing the part and visible condition",
-  "confidence": 85
-}
-Be specific and accurate. If unsure, give your best guess — never leave partName or category empty.`;
-
-  const body = {
-    contents: [{
-      parts: [
-        { inline_data: { mime_type: mediaType, data: base64Image } },
-        { text: prompt }
-      ]
-    }],
-    generationConfig: { temperature: 0.1, maxOutputTokens: 512 }
-  };
-
-  const res = await fetch(url, {
+  const res = await fetch(`${SUPABASE_URL}/functions/v1/scan-part`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body)
+    headers: {
+      "Content-Type": "application/json",
+      "Authorization": `Bearer ${SUPABASE_ANON}`,
+      "apikey": SUPABASE_ANON,
+    },
+    body: JSON.stringify({ base64Image, mediaType })
   });
 
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({}));
-    const msg = err?.error?.message || `API error ${res.status}`;
-    if (res.status === 400 && msg.includes("API_KEY")) throw new Error("BAD_KEY");
+  const data = await res.json();
+  if (!res.ok || data.error) {
+    const msg = data.error || `Server error ${res.status}`;
+    if (msg === "NO_KEY") throw new Error("NO_KEY");
     throw new Error(msg);
   }
-
-  const data = await res.json();
-  const text = data.candidates?.[0]?.content?.parts?.[0]?.text || "{}";
-  const clean = text.replace(/```json|```/g, "").trim();
-  try {
-    return JSON.parse(clean);
-  } catch(e) {
-    // Try to extract JSON from response if model added surrounding text
-    const match = clean.match(/\{[\s\S]*\}/);
-    if (match) return JSON.parse(match[0]);
-    throw new Error("Could not parse AI response");
-  }
+  return data;
 }
 
 function AIPartScanner({ onResult, onClose }) {
@@ -2324,19 +2294,18 @@ function AIPartScanner({ onResult, onClose }) {
         <Header title="Setup Required" />
         <div style={{ padding: "16px 20px 44px", display: "flex", flexDirection: "column", gap: 14 }}>
           <div style={{ background: "#fff8e1", borderRadius: 12, padding: "14px", border: "1px solid #ffe082" }}>
-            <p style={{ color: "#e65100", fontWeight: 700, fontSize: 14, margin: "0 0 6px" }}>⚙️ Google Gemini API key needed</p>
+            <p style={{ color: "#e65100", fontWeight: 700, fontSize: 14, margin: "0 0 6px" }}>⚙️ Gemini key not set on server</p>
             <p style={{ color: "#bf360c", fontSize: 12, margin: 0, lineHeight: 1.7 }}>
-              Add <code style={{ background: "#fff3e0", padding: "1px 5px", borderRadius: 4, fontSize: 11 }}>VITE_GEMINI_KEY</code> to your Vercel environment variables to enable AI scanning.
+              Add <code style={{ background: "#fff3e0", padding: "1px 5px", borderRadius: 4, fontSize: 11 }}>GEMINI_KEY</code> to your Supabase Edge Function secrets.
             </p>
           </div>
           <div style={{ background: "#f8f8f8", borderRadius: 12, padding: "14px 16px" }}>
-            <p style={{ color: "#333", fontSize: 13, fontWeight: 700, margin: "0 0 10px" }}>🚀 Quick setup (5 minutes, free):</p>
+            <p style={{ color: "#333", fontSize: 13, fontWeight: 700, margin: "0 0 10px" }}>🚀 Setup (5 min, free):</p>
             {[
-              ["1", "Go to aistudio.google.com"],
-              ["2", "Sign in with Google → Get API Key"],
-              ["3", "Vercel → Your project → Settings → Environment Variables"],
-              ["4", "Add: VITE_GEMINI_KEY = your-key-here"],
-              ["5", "Redeploy → scanner works instantly"],
+              ["1", "Go to aistudio.google.com → Get API Key"],
+              ["2", "Supabase Dashboard → Edge Functions → scan-part"],
+              ["3", "Click Secrets → Add: GEMINI_KEY = your-key"],
+              ["4", "That's it — key is safe on the server"],
             ].map(([n, t]) => (
               <div key={n} style={{ display: "flex", gap: 10, alignItems: "flex-start", marginBottom: 7 }}>
                 <div style={{ width: 20, height: 20, borderRadius: "50%", background: "#1a73e8", color: "#fff", fontSize: 11, fontWeight: 700, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, marginTop: 1 }}>{n}</div>
