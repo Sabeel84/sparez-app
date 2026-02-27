@@ -1931,7 +1931,7 @@ async function analyseWithGemini(base64Image, mediaType) {
   const KEY = import.meta.env.VITE_GEMINI_KEY;
   if (!KEY) throw new Error("NO_KEY");
 
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${KEY}`;
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${KEY}`;
 
   const prompt = `You are an expert auto parts identifier. Analyse this image and identify the car part shown.
 Reply ONLY with a valid JSON object — no markdown, no explanation, no code fences. Use exactly these keys:
