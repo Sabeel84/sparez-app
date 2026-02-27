@@ -1318,10 +1318,40 @@ function AuthScreen({authMode,setAuthMode,setCurrentUser,setUsers,setScreen,noti
   const [showTerms,setShowTerms]=useState(false);
   const [loading,setLoading]=useState(false);
   const [verifyStep,setVerifyStep]=useState(false);
-  const set=(k,v)=>sf(p=>({...p,[k]:v}));
+  const [errors,setErrors]=useState({});
+  const set=(k,v)=>{sf(p=>({...p,[k]:v}));setErrors(e=>({...e,[k]:false}));};
+
+  // Input style — red border when field has error
+  const inp=(field)=>({...C.input,borderColor:errors[field]?"#e8172c":"#e0e0e0",background:errors[field]?"#fff5f5":"#fff",transition:"border-color .2s,background .2s"});
 
   const submit=async()=>{
     if(loading)return;
+
+    if(authMode==="register"){
+      // Validate all fields and mark errors
+      const e={};
+      if(!f.name.trim())       e.name=true;
+      if(!f.email.trim())      e.email=true;
+      if(!f.phone.trim())      e.phone=true;
+      if(!f.password.trim())   e.password=true;
+      if(!f.termsAccepted)     e.terms=true;
+      if(f.phone.trim()&&!f.phone.match(/^\+?[\d\s\-]{7,}/)) e.phone=true;
+      if(Object.keys(e).length>0){
+        setErrors(e);
+        notify("Please fill all required fields","error");
+        return;
+      }
+    } else {
+      const e={};
+      if(!f.email.trim())    e.email=true;
+      if(!f.password.trim()) e.password=true;
+      if(Object.keys(e).length>0){
+        setErrors(e);
+        notify("Please enter your email and password","error");
+        return;
+      }
+    }
+
     setLoading(true);
     try{
       const sb=await getSB();
@@ -1334,18 +1364,14 @@ function AuthScreen({authMode,setAuthMode,setCurrentUser,setUsers,setScreen,noti
           } else if(error.message.toLowerCase().includes("invalid login")||
                     error.message.toLowerCase().includes("invalid credentials")||
                     error.message.toLowerCase().includes("wrong password")){
+            setErrors({email:true,password:true});
             notify("Incorrect email or password","error");
           } else {
             notify(error.message||"Sign in failed — try again","error");
           }
           return;
         }
-        // onAuthStateChange in App handles setting currentUser + navigating to home
-        // Loading cleared in finally below
       }else{
-        if(!f.name||!f.email||!f.phone||!f.password)return notify("All fields required","error");
-        if(!f.termsAccepted)return notify("Please accept the Terms & Conditions","error");
-        if(!f.phone.match(/^\+?[\d\s\-]{7,}/))return notify("Enter a valid phone number","error");
         const {data,error}=await sb.auth.signUp({
           email:f.email,
           password:f.password,
@@ -1355,7 +1381,6 @@ function AuthScreen({authMode,setAuthMode,setCurrentUser,setUsers,setScreen,noti
           }
         });
         if(error){notify(error.message,"error");return;}
-        // Upsert profile so it exists even if email isn't confirmed yet
         if(data.user){
           await sb.from("profiles").upsert({
             id:data.user.id,
@@ -1409,11 +1434,14 @@ function AuthScreen({authMode,setAuthMode,setCurrentUser,setUsers,setScreen,noti
         </div>
         <div style={{display:"flex",background:"#f5f5f5",borderRadius:10,padding:4,marginBottom:4}}>
           {["login","register"].map(m=>(
-            <button key={m} style={{flex:1,padding:"10px",border:"none",borderRadius:8,background:authMode===m?"#e8172c":"transparent",color:authMode===m?"#fff":"#888",fontWeight:600,cursor:"pointer",fontSize:14,transition:"all .2s"}} onClick={()=>setAuthMode(m)}>{m==="login"?"Sign In":"Register"}</button>
+            <button key={m} style={{flex:1,padding:"10px",border:"none",borderRadius:8,background:authMode===m?"#e8172c":"transparent",color:authMode===m?"#fff":"#888",fontWeight:600,cursor:"pointer",fontSize:14,transition:"all .2s"}} onClick={()=>{setAuthMode(m);setErrors({});}}>{m==="login"?"Sign In":"Register"}</button>
           ))}
         </div>
         {authMode==="register"&&<>
-          <input style={C.input} placeholder="Full Name / Business Name" value={f.name} onChange={e=>set("name",e.target.value)}/>
+          <div>
+            <input style={inp("name")} placeholder="Full Name / Business Name *" value={f.name} onChange={e=>set("name",e.target.value)}/>
+            {errors.name&&<p style={{color:"#e8172c",fontSize:11,margin:"4px 0 0 4px"}}>⚠ Name is required</p>}
+          </div>
           <div style={{display:"flex",gap:8}}>
             {["buyer","seller"].map(r=>(
               <button key={r} style={{flex:1,padding:"12px 8px",border:`1.5px solid ${f.role===r?"#e8172c":"#e0e0e0"}`,borderRadius:10,background:f.role===r?"#fff5f5":"#fff",color:f.role===r?"#e8172c":"#666",cursor:"pointer",fontFamily:"inherit",display:"flex",flexDirection:"column",alignItems:"center",gap:3}} onClick={()=>set("role",r)}>
@@ -1423,7 +1451,10 @@ function AuthScreen({authMode,setAuthMode,setCurrentUser,setUsers,setScreen,noti
               </button>
             ))}
           </div>
-          <input style={C.input} placeholder="Phone Number" value={f.phone} onChange={e=>set("phone",e.target.value)} type="tel"/>
+          <div>
+            <input style={inp("phone")} placeholder="Phone Number *" value={f.phone} onChange={e=>set("phone",e.target.value)} type="tel"/>
+            {errors.phone&&<p style={{color:"#e8172c",fontSize:11,margin:"4px 0 0 4px"}}>⚠ Valid phone number required</p>}
+          </div>
           {f.role==="seller"&&(
             <div style={{background:"#f8faff",border:"1.5px solid #dbeafe",borderRadius:10,padding:"12px 14px"}}>
               <p style={{color:"#1d4ed8",fontSize:12,fontWeight:700,margin:"0 0 4px",fontFamily:"inherit"}}>💱 Your Selling Currency</p>
@@ -1432,14 +1463,23 @@ function AuthScreen({authMode,setAuthMode,setCurrentUser,setUsers,setScreen,noti
             </div>
           )}
         </>}
-        <input style={C.input} placeholder="Email Address" value={f.email} onChange={e=>set("email",e.target.value)} type="email" autoComplete="email"/>
-        <input style={C.input} placeholder="Password" value={f.password} onChange={e=>set("password",e.target.value)} type="password" autoComplete={authMode==="login"?"current-password":"new-password"}/>
+        <div>
+          <input style={inp("email")} placeholder="Email Address *" value={f.email} onChange={e=>set("email",e.target.value)} type="email" autoComplete="email"/>
+          {errors.email&&<p style={{color:"#e8172c",fontSize:11,margin:"4px 0 0 4px"}}>⚠ {authMode==="login"?"Incorrect email or password":"Email is required"}</p>}
+        </div>
+        <div>
+          <input style={inp("password")} placeholder="Password *" value={f.password} onChange={e=>set("password",e.target.value)} type="password" autoComplete={authMode==="login"?"current-password":"new-password"}/>
+          {errors.password&&!errors.email&&<p style={{color:"#e8172c",fontSize:11,margin:"4px 0 0 4px"}}>⚠ {authMode==="login"?"Incorrect email or password":"Password is required"}</p>}
+        </div>
         {authMode==="register"&&(
           <div style={{display:"flex",alignItems:"flex-start",gap:10}}>
-            <div style={{width:20,height:20,minWidth:20,border:`2px solid ${f.termsAccepted?"#e8172c":"#ddd"}`,borderRadius:5,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",background:f.termsAccepted?"#e8172c":"#fff"}} onClick={()=>set("termsAccepted",!f.termsAccepted)}>
+            <div style={{width:20,height:20,minWidth:20,border:`2px solid ${errors.terms?"#e8172c":f.termsAccepted?"#e8172c":"#ddd"}`,borderRadius:5,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",background:f.termsAccepted?"#e8172c":errors.terms?"#fff5f5":"#fff"}} onClick={()=>set("termsAccepted",!f.termsAccepted)}>
               {f.termsAccepted&&<Icon name="check" size={13} color="#fff"/>}
             </div>
-            <p style={{color:"#666",fontSize:13,flex:1,margin:0}}>I agree to the <span style={{color:"#e8172c",cursor:"pointer",fontWeight:600}} onClick={()=>setShowTerms(true)}>Terms & Conditions</span></p>
+            <div style={{flex:1}}>
+              <p style={{color:"#666",fontSize:13,margin:0}}>I agree to the <span style={{color:"#e8172c",cursor:"pointer",fontWeight:600}} onClick={()=>setShowTerms(true)}>Terms & Conditions</span></p>
+              {errors.terms&&<p style={{color:"#e8172c",fontSize:11,margin:"3px 0 0"}}>⚠ You must accept the Terms & Conditions</p>}
+            </div>
           </div>
         )}
         <button style={{...C.btnRed,opacity:loading?0.7:1,cursor:loading?"not-allowed":"pointer"}} onClick={submit} disabled={loading}>
