@@ -1930,15 +1930,10 @@ function CameraModal({onCapture,onClose}){
 async function analyseWithGemini(base64Image, mediaType) {
   // Calls our Supabase Edge Function — keeps the Gemini key secret on the server
   // so users can never steal it from the browser and drain your quota
-  const SUPABASE_URL = "https://bqgkpypxbdiiciznzhnq.supabase.co";
-  const SUPABASE_ANON = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJxZ2tweXB4YmRpaWNpem56aG5xIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDgwODQ1MDEsImV4cCI6MjA2MzY2MDUwMX0.WMeT2ioFnBPNItfH7OP_TQE97nHDz3GnJ-6FVaRkAzM";
-
-  const res = await fetch(`${SUPABASE_URL}/functions/v1/scan-part`, {
+  const res = await fetch("https://tdmzyobydepljktoljxq.supabase.co/functions/v1/scan-part", {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      "Authorization": `Bearer ${SUPABASE_ANON}`,
-      "apikey": SUPABASE_ANON,
     },
     body: JSON.stringify({ base64Image, mediaType })
   });
@@ -2025,16 +2020,33 @@ function AIPartScanner({ onResult, onClose }) {
 
   const runAnalysis = async (imgDataUrl) => {
     setPhase("scanning");
-    setProgress("Sending to Gemini AI");
+    setProgress("Preparing image");
     try {
-      const [header, base64] = imgDataUrl.split(",");
-      const mediaType = header.match(/:(.*?);/)?.[1] || "image/jpeg";
+      // Compress to max 800px wide, JPEG 80% — keeps payload small for edge function
+      const compressed = await new Promise(resolve => {
+        const img = new Image();
+        img.onload = () => {
+          const MAX = 800;
+          const scale = Math.min(1, MAX / Math.max(img.width, img.height));
+          const w = Math.round(img.width * scale);
+          const h = Math.round(img.height * scale);
+          const canvas = document.createElement("canvas");
+          canvas.width = w; canvas.height = h;
+          canvas.getContext("2d").drawImage(img, 0, 0, w, h);
+          resolve(canvas.toDataURL("image/jpeg", 0.80));
+        };
+        img.src = imgDataUrl;
+      });
+
+      setProgress("Sending to Gemini AI");
+      const [header, base64] = compressed.split(",");
+      const mediaType = "image/jpeg";
       const parsed = await analyseWithGemini(base64, mediaType);
       setResult(parsed);
       setPhase("done");
     } catch(e) {
       console.error("Gemini scanner error:", e);
-      if (e.message === "NO_KEY" || e.message === "BAD_KEY") {
+      if (e.message === "NO_KEY") {
         setPhase("no_key");
       } else {
         setErrorMsg(e.message || "Analysis failed — please try again");
@@ -2324,15 +2336,24 @@ function AIPartScanner({ onResult, onClose }) {
     <div style={{ position: "fixed", inset: 0, zIndex: 700, background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "flex-end", justifyContent: "center" }}>
       <div style={{ background: "#fff", borderRadius: "22px 22px 0 0", width: "100%", maxWidth: 430, display: "flex", flexDirection: "column", overflow: "hidden" }}>
         <Header title="Scan Failed" />
-        <div style={{ padding: "28px 24px 44px", display: "flex", flexDirection: "column", alignItems: "center", gap: 14, textAlign: "center" }}>
-          <div style={{ width: 60, height: 60, borderRadius: "50%", background: "#fff5f5", border: "2px solid #fecaca", display: "flex", alignItems: "center", justifyContent: "center" }}>
-            <span style={{ fontSize: 28 }}>⚠️</span>
+        <div style={{ padding: "20px 20px 40px", display: "flex", flexDirection: "column", gap: 12 }}>
+          <div style={{ display:"flex", alignItems:"center", gap:12, background:"#fff5f5", borderRadius:12, padding:"14px", border:"1px solid #fecaca" }}>
+            <span style={{ fontSize: 28, flexShrink:0 }}>⚠️</span>
+            <div>
+              <p style={{ color: "#c0392b", fontWeight: 700, fontSize: 14, margin: "0 0 4px" }}>Scan Failed</p>
+              <p style={{ color: "#888", fontSize: 12, margin: 0, lineHeight: 1.5, wordBreak:"break-word" }}>{errorMsg || "Unknown error"}</p>
+            </div>
           </div>
-          <div>
-            <p style={{ color: "#111", fontWeight: 700, fontSize: 15, margin: "0 0 6px" }}>Couldn't identify the part</p>
-            <p style={{ color: "#888", fontSize: 12, margin: 0, lineHeight: 1.6 }}>{errorMsg || "Check your connection and try again."}</p>
+          <div style={{ background:"#f8f8f8", borderRadius:10, padding:"12px 14px" }}>
+            <p style={{ color:"#555", fontSize:12, fontWeight:700, margin:"0 0 6px" }}>Common fixes:</p>
+            <p style={{ color:"#888", fontSize:11, margin:0, lineHeight:1.8 }}>
+              • Edge function not deployed → check Supabase → Edge Functions<br/>
+              • GEMINI_KEY secret missing → add it in Edge Functions → Secrets<br/>
+              • Poor internet connection → try again<br/>
+              • Image too dark or blurry → retake in better light
+            </p>
           </div>
-          <div style={{ display: "flex", gap: 8, width: "100%" }}>
+          <div style={{ display: "flex", gap: 8 }}>
             <button style={{ ...C.btnGhost, flex: 1 }} onClick={() => { setCapturedImg(null); setResult(null); setPhase("intro"); }}>Try Again</button>
             <button style={{ ...C.btnRed, flex: 1 }} onClick={() => { stopCam(); onClose(); }}>Close</button>
           </div>
