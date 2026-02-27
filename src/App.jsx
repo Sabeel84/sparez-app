@@ -2155,40 +2155,55 @@ function AIPartScanner({ onResult, onClose }) {
 
   // ── CAMERA ───────────────────────────────────────────────────────────────
   if (phase === "camera") return (
-    <div style={{ position: "fixed", inset: 0, zIndex: 700, background: "#000", display: "flex", flexDirection: "column" }}>
-      <video ref={videoRef} autoPlay playsInline muted style={{ flex: 1, width: "100%", objectFit: "cover" }} />
-      {/* Viewfinder */}
+    <div style={{ position: "fixed", inset: 0, zIndex: 700, background: "#000" }}>
+      <style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style>
+      {/* Video fills entire screen behind everything */}
+      <video ref={videoRef} autoPlay playsInline muted
+        style={{ position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "cover" }} />
+
+      {/* Viewfinder corners — pointer-events none so they don't block taps */}
       <div style={{ position: "absolute", inset: 0, pointerEvents: "none", display: "flex", alignItems: "center", justifyContent: "center" }}>
-        <div style={{ width: 240, height: 240, position: "relative" }}>
+        <div style={{ width: 220, height: 220, position: "relative" }}>
           {[
             { top: 0, left: 0, borderTop: "3px solid #fff", borderLeft: "3px solid #fff" },
             { top: 0, right: 0, borderTop: "3px solid #fff", borderRight: "3px solid #fff" },
             { bottom: 0, left: 0, borderBottom: "3px solid #fff", borderLeft: "3px solid #fff" },
             { bottom: 0, right: 0, borderBottom: "3px solid #fff", borderRight: "3px solid #fff" },
-          ].map((s, i) => <div key={i} style={{ position: "absolute", ...s, width: 36, height: 36, borderRadius: 3 }} />)}
+          ].map((s, i) => <div key={i} style={{ position: "absolute", ...s, width: 32, height: 32, borderRadius: 3 }} />)}
         </div>
       </div>
-      {/* Hint */}
-      <div style={{ position: "absolute", top: "calc(50% - 150px)", left: 0, right: 0, textAlign: "center" }}>
-        <span style={{ background: "rgba(0,0,0,0.6)", color: "#fff", fontSize: 12, padding: "5px 16px", borderRadius: 20 }}>
+
+      {/* Hint label — above centre */}
+      <div style={{ position: "absolute", top: "38%", left: 0, right: 0, display: "flex", justifyContent: "center", pointerEvents: "none" }}>
+        <span style={{ background: "rgba(0,0,0,0.65)", color: "#fff", fontSize: 12, padding: "5px 16px", borderRadius: 20 }}>
           {cameraReady ? "Centre the part then tap capture" : "Starting camera…"}
         </span>
       </div>
-      {/* Bottom bar */}
-      <div style={{ background: "rgba(0,0,0,0.85)", padding: "18px 32px 36px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+
+      {/* Controls — pinned to bottom, always on top */}
+      <div style={{ position: "absolute", bottom: 0, left: 0, right: 0, background: "rgba(0,0,0,0.82)", paddingTop: 20, paddingBottom: 44, paddingLeft: 40, paddingRight: 40, display: "flex", alignItems: "center", justifyContent: "space-between", zIndex: 10 }}>
         {/* Back */}
-        <button onClick={() => { stopCam(); setPhase("intro"); }} style={{ width: 48, height: 48, borderRadius: "50%", background: "rgba(255,255,255,0.12)", border: "none", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2.5" strokeLinecap="round"><polyline points="15 18 9 12 15 6"/></svg>
+        <button onClick={() => { stopCam(); setPhase("intro"); }}
+          style={{ width: 52, height: 52, borderRadius: "50%", background: "rgba(255,255,255,0.15)", border: "2px solid rgba(255,255,255,0.25)", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2.5" strokeLinecap="round"><polyline points="15 18 9 12 15 6"/></svg>
         </button>
-        {/* Shutter */}
-        <button onClick={snapPhoto} disabled={!cameraReady} style={{ width: 72, height: 72, borderRadius: "50%", background: cameraReady ? "#fff" : "#555", border: `4px solid ${cameraReady ? "#e8172c" : "#444"}`, cursor: cameraReady ? "pointer" : "not-allowed", display: "flex", alignItems: "center", justifyContent: "center", boxShadow: cameraReady ? "0 0 0 6px rgba(232,23,44,0.2)" : "none" }}>
-          <div style={{ width: 54, height: 54, borderRadius: "50%", background: cameraReady ? "#e8172c" : "#444" }} />
+
+        {/* Shutter — always tappable, shows loading state when not ready */}
+        <button onClick={snapPhoto}
+          style={{ width: 76, height: 76, borderRadius: "50%", background: "#fff", border: "5px solid #e8172c", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", boxShadow: "0 0 0 6px rgba(232,23,44,0.25)", flexShrink: 0 }}>
+          {cameraReady
+            ? <div style={{ width: 58, height: 58, borderRadius: "50%", background: "#e8172c" }} />
+            : <div style={{ width: 28, height: 28, borderRadius: "50%", border: "3px solid #e8172c", borderTopColor: "transparent", animation: "spin .8s linear infinite" }} />
+          }
         </button>
+
         {/* Gallery */}
-        <button onClick={() => fileRef.current.click()} style={{ width: 48, height: 48, borderRadius: "50%", background: "rgba(255,255,255,0.12)", border: "none", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>
+        <button onClick={() => fileRef.current.click()}
+          style={{ width: 52, height: 52, borderRadius: "50%", background: "rgba(255,255,255,0.15)", border: "2px solid rgba(255,255,255,0.25)", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>
           <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2" strokeLinecap="round"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
         </button>
       </div>
+
       <input ref={fileRef} type="file" accept="image/*" style={{ display: "none" }} onChange={handleFile} />
     </div>
   );
