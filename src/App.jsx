@@ -149,7 +149,16 @@ const INIT_USERS=[
 ];
 
 function genId(){return Math.random().toString(36).slice(2,10);}
-function timeAgo(ts){const d=(Date.now()-ts)/1000;if(d<60)return"just now";if(d<3600)return`${Math.floor(d/60)}m ago`;if(d<86400)return`${Math.floor(d/3600)}h ago`;return`${Math.floor(d/86400)}d ago`;}
+function timeAgo(ts){
+  if(!ts)return"";
+  const ms=typeof ts==="string"?new Date(ts).getTime():Number(ts);
+  const d=(Date.now()-ms)/1000;
+  if(isNaN(d)||d<0)return"just now";
+  if(d<60)return"just now";
+  if(d<3600)return`${Math.floor(d/60)}m ago`;
+  if(d<86400)return`${Math.floor(d/3600)}h ago`;
+  return`${Math.floor(d/86400)}d ago`;
+}
 function avgRating(r=[]){if(!r.length)return null;return(r.reduce((s,x)=>s+x.stars,0)/r.length).toFixed(1);}
 
 // ─── Image Compression ────────────────────────────────────────────────────────
@@ -911,7 +920,7 @@ function listingToRow(l){
     part_number:l.partNumber||null, category:l.category,
     condition:l.condition, price:l.price, currency:l.currency||"USD",
     description:l.description, photos:l.photos,
-    sold:l.sold||false, sold_at:l.soldAt||null, created_at:l.createdAt||Date.now(),
+    sold:l.sold||false, sold_at:l.soldAt||null, created_at:l.createdAt||new Date().toISOString(),
   };
 }
 function rowToListing(r){
@@ -921,7 +930,7 @@ function rowToListing(r){
     sellerLocation:r.seller_location, make:r.make, model:r.model,
     year:r.year, vin:r.vin, partName:r.part_name,
     partNumber:r.part_number, category:r.category,
-    condition:r.condition, price:r.price, currency:r.currency,
+    condition:r.condition, price:r.price, currency:r.currency||"USD",
     description:r.description, photos:r.photos||[],
     sold:r.sold, soldAt:r.sold_at, createdAt:r.created_at,
   };
@@ -955,7 +964,7 @@ export default function App(){
   const [authMode,setAuthMode]     = useState("login");
   const [currentUser,setCurrentUser] = useState(()=>lsGet("sparez_currentUser",null));
   const [users,setUsers]           = useState(()=>lsGet("sparez_users",[]));
-  const [listings,setListings]     = useState(()=>lsGet("sparez_listings",[]));
+  const [listings,setListings]     = useState(()=>lsGet("sparez_listings",[]).map(l=>({...l,currency:l.currency||"USD",photos:l.photos||[]})));
   const [chats,setChats]           = useState(()=>lsGet("sparez_chats",{}));
   const [notifs,setNotifs]         = useState(()=>lsGet("sparez_notifs",[]));
   const [activeListing,setActiveListing] = useState(null);
@@ -993,6 +1002,8 @@ export default function App(){
           setCurrentUser(u);
           setScreen("home");
         }
+        // onAuthStateChange will fire SIGNED_IN right after this and re-fetch listings
+        // so we skip a duplicate fetch here
       }
 
       // ── Listen for auth state changes ─────────────────────────────────────
@@ -1028,10 +1039,21 @@ export default function App(){
             setUsers(us=>us.find(x=>x.id===u.id)?us.map(x=>x.id===u.id?u:x):[...us,u]);
             setScreen("home");
           }
+          // ── Always re-fetch fresh listings on sign-in ──────────────────────
+          const {data:lRows}=await sb.from("listings").select("*").order("created_at",{ascending:false});
+          if(lRows){
+            const mapped=lRows.map(rowToListing);
+            setListings(mapped);
+            mapped.forEach(l=>seenListingIds.current.add(l.id));
+          }
         }
         if(event==="SIGNED_OUT"){
           setCurrentUser(null);
           lsSet("sparez_currentUser",null);
+          setListings([]);
+          setNotifs([]);
+          lsSet("sparez_listings",[]);
+          lsSet("sparez_notifs",[]);
           setScreen("splash");
         }
       });
@@ -1153,10 +1175,11 @@ export default function App(){
   };
 
   const markSold=async(id)=>{
-    setListings(ls=>ls.map(l=>l.id===id?{...l,sold:true,soldAt:Date.now()}:l));
+    const soldNow=new Date().toISOString();
+    setListings(ls=>ls.map(l=>l.id===id?{...l,sold:true,soldAt:soldNow}:l));
     notify("Marked as SOLD \u2014 listing will be removed shortly.","success");
     const sb=await getSB();
-    await sb.from("listings").update({sold:true,sold_at:Date.now()}).eq("id",id);
+    await sb.from("listings").update({sold:true,sold_at:soldNow}).eq("id",id);
     setTimeout(async()=>{
       setListings(ls=>ls.filter(l=>l.id!==id));
       await sb.from("listings").delete().eq("id",id);
@@ -1188,7 +1211,11 @@ export default function App(){
     setCurrentUser(null);
     setActiveListing(null);
     setActiveChatKey(null);
+    setListings([]);
+    setNotifs([]);
     lsSet("sparez_currentUser",null);
+    lsSet("sparez_listings",[]);
+    lsSet("sparez_notifs",[]);
     setScreen("splash");
   };
 
@@ -1215,8 +1242,8 @@ export default function App(){
     return true;
   }).sort((a,b)=>{
     if(filters.sortBy==="Oldest")return a.createdAt-b.createdAt;
-    if(filters.sortBy==="Price: Low→High")return parseFloat(a.price)-parseFloat(b.price);
-    if(filters.sortBy==="Price: High→Low")return parseFloat(b.price)-parseFloat(a.price);
+    if(filters.sortBy==="Price: Low\u2192High")return cvtPrice(a.price,a.currency||"USD","USD")-cvtPrice(b.price,b.currency||"USD","USD");
+    if(filters.sortBy==="Price: High\u2192Low")return cvtPrice(b.price,b.currency||"USD","USD")-cvtPrice(a.price,a.currency||"USD","USD");
     return b.createdAt-a.createdAt;
   });
 
@@ -2456,9 +2483,9 @@ function AddListingScreen({currentUser,setListings,notify,setScreen}){
   const [submitting,setSubmitting]=useState(false);
   const submit=async()=>{
     if(submitting)return;
-    const req=["make","model","year","partName","category","condition","price","description"];
+    const req=["make","model","year","partName","category","condition","price","description","location"];
     if(req.some(k=>!f[k]))return notify("Fill all required fields","error");
-    if(f.model==="Other (not listed)"&&!f.customModel)return notify("Please enter the model name","error");
+    if(f.model==="Other (not listed)"&&!f.customModel?.trim())return notify("Please enter the model name","error");
     if(photos.length===0)return notify("Add at least one photo","error");
     setSubmitting(true);
     const finalModel=f.model==="Other (not listed)"?f.customModel:f.model;
@@ -2811,8 +2838,8 @@ function MyListingsScreen({listings,openListing,setScreen,markSold,deleteListing
                 <p style={{color:"#888",fontSize:11,margin:"0 0 4px"}}>{l.year} {l.make}</p>
                 <p style={{color:"#e8172c",fontWeight:800,fontSize:14,margin:"0 0 8px"}}>{fmtPrice(l.price,l.currency||"USD")}</p>
                 <div style={{display:"flex",gap:6}}>
-                  <button style={{flex:1,background:"#16a34a",color:"#fff",border:"none",borderRadius:8,padding:"7px 4px",fontWeight:700,fontSize:11,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",gap:4}} onClick={()=>markSold(l.id)}><Icon name="sold" size={12} color="#fff"/>Sold</button>
-                  <button style={{width:32,height:32,borderRadius:8,border:"1.5px solid #fca5a5",background:"#fff",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}} onClick={()=>deleteListing(l.id)}><Icon name="trash" size={13} color="#e8172c"/></button>
+                  <button style={{flex:1,background:"#16a34a",color:"#fff",border:"none",borderRadius:8,padding:"7px 4px",fontWeight:700,fontSize:11,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",gap:4}} onClick={()=>{if(window.confirm("Mark this listing as SOLD? This cannot be undone."))markSold(l.id);}}><Icon name="sold" size={12} color="#fff"/>Sold</button>
+                  <button style={{width:32,height:32,borderRadius:8,border:"1.5px solid #fca5a5",background:"#fff",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}} onClick={()=>{if(window.confirm("Delete this listing permanently?"))deleteListing(l.id);}}><Icon name="trash" size={13} color="#e8172c"/></button>
                 </div>
               </div>
             </div>
